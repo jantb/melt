@@ -1,37 +1,20 @@
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
-use std::sync::mpsc::{Receiver, SyncSender};
 use std::thread;
 use std::time::Duration;
+use crossbeam_channel::{bounded, Receiver, Sender};
 use druid::ExtEventSink;
 use melt_rs::get_search_index_with_pool;
 use melt_rs::get_search_index;
 use melt_rs::message::Message;
 use crate::data::AppState;
 
-pub fn search_thread(tx_send: SyncSender<CommandMessage>, rx: Receiver<CommandMessage>,
-                     rx_search: Receiver<CommandMessage>, tx_res: SyncSender<ResultMessage>,
-                     sink: ExtEventSink) {
+pub fn search_thread(
+    rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>,
+    sink: ExtEventSink) {
 
-
-    let listener = TcpListener::bind("127.0.0.1:7999").unwrap();
-    thread::spawn(move || {
-        for stream in listener.incoming() {
-            let sender = tx_send.clone();
-            let stream = stream.unwrap();
-
-            // Spawn a new thread to handle the connection
-            thread::spawn(move || {
-                let reader = BufReader::new(stream);
-
-                // Read lines from the socket
-                for line in reader.lines() {
-                    let line = line.unwrap();
-                    sender.send(CommandMessage::InsertJson(Message { json: false, value: line })).unwrap();
-                }
-            });
-        }
-    });
+    let (tx_send, rx_send) =bounded(0);
+    socket_listener(tx_send);
 
     let index = get_search_index();
 
@@ -52,7 +35,7 @@ pub fn search_thread(tx_send: SyncSender<CommandMessage>, rx: Receiver<CommandMe
                 Err(_) => {}
             };
 
-            match rx.recv_timeout(Duration::from_millis(100)) {
+            match rx_send.recv_timeout(Duration::from_millis(100)) {
                 Ok(cm) => {
                     match cm {
                         CommandMessage::InsertJson(cm) => {
@@ -65,6 +48,25 @@ pub fn search_thread(tx_send: SyncSender<CommandMessage>, rx: Receiver<CommandMe
                 }
                 Err(_) => {}
             }
+        }
+    });
+}
+
+fn socket_listener(tx_send: Sender<CommandMessage>) {
+    let listener = TcpListener::bind("127.0.0.1:7999").unwrap();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let sender = tx_send.clone();
+
+            // Spawn a new thread to handle the connection
+            thread::spawn(move || {
+                let reader = BufReader::new(stream.unwrap());
+
+                // Read lines from the socket
+                for line in reader.lines() {
+                    sender.send(CommandMessage::InsertJson(Message { json: false, value: line.unwrap() })).unwrap();
+                }
+            });
         }
     });
 }

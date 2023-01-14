@@ -1,7 +1,6 @@
-use std::sync::Arc;
-use std::sync::mpsc::{Receiver, SyncSender};
 use std::time:: Instant;
 use clipboard::{ClipboardContext, ClipboardProvider};
+use crossbeam_channel::{Receiver, Sender};
 use druid::Lens;
 use druid::EventCtx;
 use druid::Env;
@@ -23,8 +22,9 @@ pub struct AppState {
     pub query_time: String,
     pub count : String,
     #[data(ignore)]
-    pub tx: Arc<SyncSender<CommandMessage>>,
-    pub rx: Arc<Receiver<ResultMessage>>,
+    pub tx: Sender<CommandMessage>,
+    #[data(ignore)]
+    pub rx: Receiver<ResultMessage>,
 }
 
 impl AppState {
