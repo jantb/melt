@@ -6,6 +6,7 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use druid::ExtEventSink;
 use melt_rs::get_search_index_with_pool;
 use melt_rs::get_search_index;
+use melt_rs::index::SearchIndex;
 use melt_rs::message::Message;
 use crate::data::AppState;
 
@@ -18,8 +19,11 @@ pub fn search_thread(
 
     let index = get_search_index();
 
-    thread::spawn(move || {
+    index_tread(rx_search, tx_res, sink, rx_send, index);
+}
 
+fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>, sink: ExtEventSink, rx_send: Receiver<CommandMessage>, index: SearchIndex) {
+    thread::spawn(move || {
         let mut index = get_search_index_with_pool(index.conn.clone());
         let mut count = 0;
         loop {
