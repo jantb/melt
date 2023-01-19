@@ -8,6 +8,7 @@ unused_extern_crates
 )]
 #![allow(dead_code, non_upper_case_globals)]
 
+#![windows_subsystem = "windows"]
 
 use crossbeam_channel::bounded;
 use druid::{AppLauncher, WindowDesc};
@@ -48,6 +49,7 @@ pub fn main() {
             view: RichTextBuilder::new().build(),
             query_time: "".to_string(),
             count: "0".to_string(),
+            settings: false,
             tx: tx_search.clone(),
             rx: rx_res,
         })

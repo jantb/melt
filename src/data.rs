@@ -21,6 +21,7 @@ pub struct AppState {
     pub view: RichText,
     pub query_time: String,
     pub count : String,
+    pub settings : bool,
     #[data(ignore)]
     pub tx: Sender<CommandMessage>,
     #[data(ignore)]

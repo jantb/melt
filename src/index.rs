@@ -80,7 +80,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
 fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
     let listener = TcpListener::bind("127.0.0.1:7999").unwrap();
     thread::spawn(move || {
-        let mut count = 0 as usize;
+        let mut count = 0 as u128;
         for stream in listener.incoming() {
             let sender = tx_send.clone();
             let sink = sink.clone();
