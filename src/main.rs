@@ -47,6 +47,7 @@ pub fn main() {
             query: "".to_string(),
             items: Default::default(),
             view: RichTextBuilder::new().build(),
+            pointers: Default::default(),
             query_time: "".to_string(),
             count: "0".to_string(),
             settings: false,

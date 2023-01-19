@@ -1,8 +1,4 @@
-use druid::{
-    widget::TextBox,
-    widget::{Button, Flex, Label, List},
-    Widget, WidgetExt,
-};
+use druid::{widget::TextBox, widget::{Button, Flex, Label, List}, Widget, WidgetExt};
 use druid::widget::{Container, Either, LineBreaking, Scroll, Split};
 
 use crate::data::*;
@@ -52,7 +48,12 @@ pub fn build_ui() -> impl Widget<AppState> {
         .with_child(
             Button::new("Close settings").on_click(|_, data: &mut AppState, _env| {
                 data.settings = !data.settings;
-            }).align_left());
+            }).align_left())
+        .with_child(Scroll::new(List::new(|| {
+            Label::new(|item: &String, _env: &_| format!("{item}"))
+        }))
+            .vertical()
+            .lens(AppState::pointers));
 
 
     let either = Either::new(
@@ -63,3 +64,5 @@ pub fn build_ui() -> impl Widget<AppState> {
     );
     either
 }
+
+

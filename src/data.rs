@@ -19,6 +19,7 @@ pub struct AppState {
     pub query: String,
     pub items: Vector<Item>,
     pub view: RichText,
+    pub pointers: Vector<String>,
     pub query_time: String,
     pub count : String,
     pub settings : bool,
