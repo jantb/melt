@@ -1,7 +1,8 @@
-use druid::{widget::TextBox, widget::{Button, Flex, Label, List}, Widget, WidgetExt};
+use druid::{widget::TextBox, widget::{Button, Flex, Label, List}, Widget, WidgetExt, FontDescriptor, FontFamily, FontWeight};
 use druid::widget::{Container, Either, LineBreaking, Scroll, Split};
 
 use crate::data::*;
+use crate::delegate::{ADD_COLUMN, SET_VIEW_COLUMN};
 
 fn new_search_textbox() -> impl Widget<AppState> {
     let new_search_textbox = TextBox::new()
@@ -18,8 +19,10 @@ fn new_search_textbox() -> impl Widget<AppState> {
 }
 
 fn documents() -> impl Widget<Item> {
-    let label = Label::raw().with_line_break_mode(LineBreaking::Clip)
-        .expand_width().lens(Item::text).on_click(Item::click_view);
+    let font = FontDescriptor::new(FontFamily::MONOSPACE)
+        .with_weight(FontWeight::BOLD);
+    let label = Label::raw().with_font(font).with_line_break_mode(LineBreaking::Clip)
+        .expand_width().lens(Item::view).on_click(Item::click_view);
     let copy = Button::new("Copy").on_click(Item::click_copy);
 
     Flex::row()
@@ -50,11 +53,20 @@ pub fn build_ui() -> impl Widget<AppState> {
                 data.settings = !data.settings;
             }).align_left())
         .with_child(Scroll::new(List::new(|| {
-            Label::new(|item: &String, _env: &_| format!("{item}"))
+            Label::new(|item: &String, _env: &_| format!("{item}")).on_click(|ctx, item, _env| {
+                ctx.submit_command(ADD_COLUMN.with(item.to_string()));
+            })
         }))
             .vertical()
-            .lens(AppState::pointers));
-
+            .lens(AppState::pointers).align_left())
+        .with_child(Label::new("Select view tag:").padding(8.0).align_left())
+        .with_child(Scroll::new(List::new(|| {
+            Label::new(|item: &String, _env: &_| format!("{item}")).on_click(|ctx, item, _env| {
+                ctx.submit_command(SET_VIEW_COLUMN.with(item.to_string()));
+            })
+        }))
+            .vertical()
+            .lens(AppState::pointers).align_left());
 
     let either = Either::new(
         |data, _env| data.settings,

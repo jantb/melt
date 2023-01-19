@@ -1,4 +1,3 @@
-use std::time:: Instant;
 use clipboard::{ClipboardContext, ClipboardProvider};
 use crossbeam_channel::{Receiver, Sender};
 use druid::Lens;
@@ -9,10 +8,9 @@ use druid::im::Vector;
 use druid::text::RichText;
 use serde_json::Value;
 use uuid:: Uuid;
-use crate::delegate::SET_VIEW;
+use crate::delegate::{SEARCH, SET_VIEW};
 
 use crate::index::{CommandMessage, ResultMessage};
-
 #[derive(Clone, Data, Lens)]
 pub struct AppState {
     pub new_todo: String,
@@ -23,6 +21,10 @@ pub struct AppState {
     pub query_time: String,
     pub count : String,
     pub settings : bool,
+    pub properties: Vector<String>,
+    pub view_column: String,
+
+
     #[data(ignore)]
     pub tx: Sender<CommandMessage>,
     #[data(ignore)]
@@ -30,24 +32,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    fn search(&mut self) {
-        self.items.clear();
-        if self.query.is_empty() { return; };
-        let start = Instant::now();
-
-        self.tx.send(CommandMessage::FilterRegex(self.query.to_string())).unwrap();
-        match self.rx.recv().unwrap() {
-            ResultMessage::Messages(m) => {
-                let duration = start.elapsed();
-                self.query_time = format!("Query took {}ms with {} results",duration.as_millis().to_string(), m.len());
-                m.iter()
-                    .for_each(| m| self.items.push_front(Item::new(m.value.as_str())))
-            }
-        }
-    }
-
-    pub fn click_search(_ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
-        data.search();
+    pub fn click_search(ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
+        ctx.submit_command(SEARCH.with(data.query.to_string()));
     }
 }
 
@@ -57,6 +43,9 @@ pub struct Item {
     pub id: Uuid,
     pub done: bool,
     pub text: String,
+    #[data(ignore)]
+    pub pointers: Vec<String>,
+    pub view: String,
 }
 
 impl Item {
@@ -65,6 +54,8 @@ impl Item {
             id: Uuid::new_v4(),
             done: false,
             text: text.into(),
+            pointers: Default::default(),
+            view: "".to_string(),
         }
     }
     pub fn click_copy(_ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
