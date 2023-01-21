@@ -20,6 +20,8 @@ pub struct AppState {
     pub pointers: Vector<String>,
     pub query_time: String,
     pub count : String,
+    #[data(ignore)]
+    pub count_from_index : usize,
     pub settings : bool,
     pub properties: Vector<String>,
     pub view_column: String,
