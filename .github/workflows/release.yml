@@ -43,6 +43,8 @@ jobs:
       - build
     steps:
       - uses: actions/download-artifact@v3
+      - name: Display structure of downloaded files
+        run: ls -R
       - uses: ncipollo/release-action@v1
         with:
           artifacts: 'melt*'
