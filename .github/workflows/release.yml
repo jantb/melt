@@ -13,7 +13,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [ web, deploy ]
         settings:
           - host: macos-latest
             target: aarch64-apple-darwin
@@ -32,22 +31,11 @@ jobs:
         with:
           command: build
           args: --release
-      - name: Archive Release
-        uses: thedoctor0/zip-release@main
-        with:
-          type: 'zip'
-          directory: ./target/release
-          path: melt-${{ matrix.package }}${{ matrix.settings.suffix }}
-          filename: melt-${{ matrix.package }}-${{ matrix.settings.target }}.zip
-      #      - name: Display structure of Upload files
-      #        run: ls -R
-      #      - name: Zip artifact
-      #        run: zip -j melt-${{ matrix.package }}-${{ matrix.target }} ./target/release/melt-${{ matrix.package }}
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
-          name: melt-${{ matrix.package }}-${{ matrix.settings.target }}${{ matrix.settings.suffix }}
-          path: ./target/release/melt-${{ matrix.package }}-${{ matrix.settings.target }}.zip
+          name: melt-${{ matrix.settings.target }}${{ matrix.settings.suffix }}
+          path: ./target/release/melt${{ matrix.settings.suffix }}
   release:
     name: Release
     runs-on: ubuntu-latest
