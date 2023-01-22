@@ -3,7 +3,7 @@ use std::time::Instant;
 use druid::{AppDelegate, Color, Command, DelegateCtx, Env, FontFamily, Handled, Selector, Target};
 use druid::im::Vector;
 use druid::text::RichTextBuilder;
-use jsonptr::{Pointer, ResolveMut};
+use jsonptr::{ Pointer, ResolveMut};
 use serde_json::Value;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, ThemeSet};
@@ -115,12 +115,17 @@ impl Delegate {
                     let ptr = match Pointer::try_from(ps.text.as_str()) {
                         Ok(ptr) => ptr,
                         Err(_) => {
-                           Pointer::root()
+                            Pointer::root()
                         }
                     };
 
-                    let string = json.resolve_mut(&ptr).unwrap().to_string();
-                    item.pointers.push(string);
+                    let string = match json.resolve_mut(&ptr) {
+                        Ok(v) => { v }
+                        Err(_) => { &Value::Null }
+                    };
+                    if string != &Value::Null {
+                        item.pointers.push(string.to_string());
+                    }
                     empty_pointer = false;
                 });
             } else {
@@ -138,10 +143,14 @@ impl Delegate {
                         }
                     };
 
-                    let string = json.resolve_mut(&ptr).unwrap().to_string();
+                    let string = match json.resolve_mut(&ptr) {
+                        Ok(v) => { v }
+                        Err(_) => { &Value::Null }
+                    };
+                    if string != &Value::Null {
+                        item.pointers = item.pointers.iter().filter(|p| *p != string).map(|s| s.clone()).collect();
+                    }
 
-
-                    item.pointers = item.pointers.iter().filter(|p| **p != string).map(|s| s.clone()).collect();
                     if item.pointers.is_empty() {
                         empty_pointer = true
                     }
