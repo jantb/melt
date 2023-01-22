@@ -47,6 +47,6 @@ jobs:
         run: ls -R
       - uses: ncipollo/release-action@v1
         with:
-          artifacts: 'melt*'
+          artifacts: 'melt*/*'
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
