@@ -1,8 +1,8 @@
 use druid::{widget::TextBox, widget::{Button, Flex, Label, List}, Widget, WidgetExt, FontDescriptor, FontFamily, FontWeight};
-use druid::widget::{Container, Either, LineBreaking, Scroll, Split};
+use druid::widget::{Checkbox, Container, Either, LineBreaking, Scroll, Split};
 
 use crate::data::*;
-use crate::delegate::{ADD_COLUMN, SET_VIEW_COLUMN};
+use crate::delegate::{ CHECK_CLICKED_FOR_POINTER, SET_VIEW_COLUMN};
 
 fn new_search_textbox() -> impl Widget<AppState> {
     let new_search_textbox = TextBox::new()
@@ -53,16 +53,23 @@ pub fn build_ui() -> impl Widget<AppState> {
                 data.settings = !data.settings;
             }).align_left())
         .with_child(Scroll::new(List::new(|| {
-            Label::new(|item: &String, _env: &_| format!("{item}")).on_click(|ctx, item, _env| {
-                ctx.submit_command(ADD_COLUMN.with(item.to_string()));
-            })
+            Flex::row()
+                .with_child(Checkbox::new("").lens(PointerState::checked)
+                    .on_click(|ctx, pointer_state, _env| {
+                        pointer_state.checked = !pointer_state.checked;
+                        let state = pointer_state.clone();
+                        ctx.submit_command(CHECK_CLICKED_FOR_POINTER.with(state));
+                    })
+                )
+                .with_child(Label::new(|item: &PointerState, _env: &_| format!("{}", item.text))
+                )
         }))
             .vertical()
             .lens(AppState::pointers).align_left())
         .with_child(Label::new("Select view tag:").padding(8.0).align_left())
         .with_child(Scroll::new(List::new(|| {
-            Label::new(|item: &String, _env: &_| format!("{item}")).on_click(|ctx, item, _env| {
-                ctx.submit_command(SET_VIEW_COLUMN.with(item.to_string()));
+            Label::new(|item: &PointerState, _env: &_| format!("{}", item.text)).on_click(|ctx, item, _env| {
+                ctx.submit_command(SET_VIEW_COLUMN.with(item.text.to_string()));
             })
         }))
             .vertical()

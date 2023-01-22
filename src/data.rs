@@ -13,11 +13,10 @@ use crate::delegate::{SEARCH, SET_VIEW};
 use crate::index::{CommandMessage, ResultMessage};
 #[derive(Clone, Data, Lens)]
 pub struct AppState {
-    pub new_todo: String,
     pub query: String,
     pub items: Vector<Item>,
     pub view: RichText,
-    pub pointers: Vector<String>,
+    pub pointers: Vector<PointerState>,
     pub query_time: String,
     pub count : String,
     #[data(ignore)]
@@ -31,6 +30,19 @@ pub struct AppState {
     pub tx: Sender<CommandMessage>,
     #[data(ignore)]
     pub rx: Receiver<ResultMessage>,
+}
+
+#[derive(Clone, Data, Lens)]
+pub struct PointerState{
+    pub text : String,
+    pub checked: bool
+}
+
+#[derive(Clone, Data, Lens)]
+pub struct PointerStateItem{
+    pub text : String,
+    pub resolved : String,
+    pub checked: bool
 }
 
 impl AppState {
@@ -47,6 +59,8 @@ pub struct Item {
     pub text: String,
     #[data(ignore)]
     pub pointers: Vec<String>,
+    #[data(ignore)]
+    pub pointer_states: Vec<PointerStateItem>,
     pub view: String,
 }
 
@@ -57,6 +71,7 @@ impl Item {
             done: false,
             text: text.into(),
             pointers: Default::default(),
+            pointer_states: vec![],
             view: "".to_string(),
         }
     }

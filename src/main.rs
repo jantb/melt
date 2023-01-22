@@ -44,7 +44,6 @@ pub fn main() {
     launcher
         .delegate(Delegate {})
         .launch(AppState {
-            new_todo: "".to_string(),
             query: "".to_string(),
             items: Default::default(),
             view: RichTextBuilder::new().build(),
