@@ -106,16 +106,41 @@ impl Delegate {
         data.pointers.iter().for_each(|ps| {
             if ps.checked {
                 data.items.iter_mut().for_each(|item| {
-                    let mut json: Value = serde_json::from_str(&item.text).unwrap();
-                    let ptr = Pointer::try_from(ps.text.as_str()).unwrap();
-                    item.pointers.push(json.resolve_mut(&ptr).unwrap().to_string());
+                    let mut json: Value = match serde_json::from_str(&item.text) {
+                        Ok(json) => json,
+                        Err(_) => {
+                            Value::Null
+                        }
+                    };
+                    let ptr = match Pointer::try_from(ps.text.as_str()) {
+                        Ok(ptr) => ptr,
+                        Err(_) => {
+                           Pointer::root()
+                        }
+                    };
+
+                    let string = json.resolve_mut(&ptr).unwrap().to_string();
+                    item.pointers.push(string);
                     empty_pointer = false;
                 });
             } else {
                 data.items.iter_mut().for_each(|item| {
-                    let mut json: Value = serde_json::from_str(&item.text).unwrap();
-                    let ptr = Pointer::try_from(ps.text.as_str()).unwrap();
+                    let mut json: Value = match serde_json::from_str(&item.text) {
+                        Ok(json) => json,
+                        Err(_) => {
+                            Value::Null
+                        }
+                    };
+                    let ptr = match Pointer::try_from(ps.text.as_str()) {
+                        Ok(ptr) => ptr,
+                        Err(_) => {
+                            Pointer::root()
+                        }
+                    };
+
                     let string = json.resolve_mut(&ptr).unwrap().to_string();
+
+
                     item.pointers = item.pointers.iter().filter(|p| **p != string).map(|s| s.clone()).collect();
                     if item.pointers.is_empty() {
                         empty_pointer = true
