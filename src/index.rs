@@ -7,7 +7,6 @@ use std::time::Duration;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use druid::ExtEventSink;
 use melt_rs::get_search_index;
-use melt_rs::message::Message;
 use crate::data::AppState;
 use crate::GLOBAL_COUNT;
 
@@ -96,7 +95,6 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
     let listener = TcpListener::bind("127.0.0.1:7999").unwrap();
 
     sink.add_idle_callback(move |data: &mut AppState| {
-
         data.count = (data.count_from_index + count).to_string()
     });
     thread::spawn(move || {
@@ -108,7 +106,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
                 let reader = BufReader::new(stream.unwrap());
                 // Read lines from the socket
                 for line in reader.lines() {
-                    sender.send(CommandMessage::InsertJson(Message { json: false, value: line.unwrap() })).unwrap_or(());
+                    sender.send(CommandMessage::InsertJson(line.unwrap())).unwrap_or(());
                     count += 1;
                     sink.add_idle_callback(move |data: &mut AppState| {
                         data.count_from_index = GLOBAL_COUNT.load(Ordering::SeqCst);
@@ -124,9 +122,9 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
 pub enum CommandMessage {
     FilterRegex(String),
     Quit,
-    InsertJson(Message),
+    InsertJson(String),
 }
 
 pub enum ResultMessage {
-    Messages(Vec<Message>),
+    Messages(Vec<String>),
 }

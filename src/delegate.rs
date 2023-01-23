@@ -3,7 +3,7 @@ use std::time::Instant;
 use druid::{AppDelegate, Color, Command, DelegateCtx, Env, FontFamily, Handled, Selector, Target};
 use druid::im::Vector;
 use druid::text::RichTextBuilder;
-use jsonptr::{ Pointer, ResolveMut};
+use jsonptr::{Pointer, ResolveMut};
 use serde_json::Value;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, ThemeSet};
@@ -35,7 +35,7 @@ impl AppDelegate<AppState> for Delegate {
             let ts = ThemeSet::load_defaults();
 
             let syntax = ps.find_syntax_by_extension("json").unwrap();
-            //InspiredGitHub
+            // InspiredGitHub
             // Solarized (dark)
             // Solarized (light)
             // base16-eighties.dark
@@ -65,7 +65,6 @@ impl AppDelegate<AppState> for Delegate {
             Handled::Yes
         } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER) {
             data.pointers.iter_mut().for_each(|p| if p.text == pointer_state.text { p.checked = pointer_state.checked });
-            Self::sort_and_resolve(data);
             Handled::Yes
         } else if let Some(param) = cmd.get(SET_VIEW_COLUMN) {
             data.items.iter_mut().for_each(|item| {
@@ -86,7 +85,7 @@ impl AppDelegate<AppState> for Delegate {
                     let duration = start.elapsed();
                     data.query_time = format!("Query took {}ms with {} results", duration.as_millis().to_string(), m.len());
                     m.iter()
-                        .for_each(|m| data.items.push_front(Item::new(m.value.as_str())))
+                        .for_each(|m| data.items.push_front(Item::new(m.as_str())))
                 }
             }
 
@@ -126,36 +125,9 @@ impl Delegate {
                     if string != &Value::Null {
                         item.pointers.push(string.to_string());
                     }
-                    empty_pointer = false;
                 });
-            } else {
-                data.items.iter_mut().for_each(|item| {
-                    let mut json: Value = match serde_json::from_str(&item.text) {
-                        Ok(json) => json,
-                        Err(_) => {
-                            Value::Null
-                        }
-                    };
-                    let ptr = match Pointer::try_from(ps.text.as_str()) {
-                        Ok(ptr) => ptr,
-                        Err(_) => {
-                            Pointer::root()
-                        }
-                    };
-
-                    let string = match json.resolve_mut(&ptr) {
-                        Ok(v) => { v }
-                        Err(_) => { &Value::Null }
-                    };
-                    if string != &Value::Null {
-                        item.pointers = item.pointers.iter().filter(|p| *p != string).map(|s| s.clone()).collect();
-                    }
-
-                    if item.pointers.is_empty() {
-                        empty_pointer = true
-                    }
-                });
-            };
+                empty_pointer = false;
+            }
         });
         empty_pointer.clone()
     }
