@@ -1,14 +1,19 @@
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
-use std::sync::atomic::Ordering;
+use std::sync::Mutex;
 use std::thread;
-use std::thread::JoinHandle;
+use std::thread::{JoinHandle, sleep};
 use std::time::Duration;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use druid::ExtEventSink;
+use lazy_static::lazy_static;
 use melt_rs::get_search_index;
 use crate::data::AppState;
-use crate::GLOBAL_COUNT;
+
+lazy_static! {
+    static ref ARRAY: Mutex<Vec<usize>> = Mutex::new(vec![0;100]);
+    static ref ARRAY_SIZE: Mutex<Vec<usize>> = Mutex::new(vec![0;100]);
+}
 
 pub fn search_thread(
     rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>,
@@ -31,6 +36,7 @@ pub fn search_thread(
             match rx_search.recv().unwrap() {
                 CommandMessage::FilterRegex(cm) => {
                     command_senders.iter().for_each(|t| t.send(CommandMessage::FilterRegex(cm.clone())).unwrap());
+
                     tx_res.send(ResultMessage::Messages(result_receivers.iter()
                         .map(|r| match r.recv().unwrap()
                         { ResultMessage::Messages(m) => { m } }).flatten().collect())).unwrap();
@@ -52,7 +58,6 @@ pub fn search_thread(
 fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>, rx_send: Receiver<CommandMessage>, thread: u8) -> JoinHandle<i32> {
     thread::spawn(move || {
         let mut index = get_search_index(thread);
-        GLOBAL_COUNT.fetch_add(index.get_size(), Ordering::SeqCst);
         loop {
             match rx_search.try_recv() {
                 Ok(cm) => {
@@ -86,31 +91,43 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                 }
                 Err(_) => {}
             }
+
+            let i = index.get_size();
+            ARRAY.lock().unwrap()[thread as usize] = i;
+            if i % 10000 == 0 {
+                ARRAY_SIZE.lock().unwrap()[thread as usize] = index.get_size_bytes() / 1_000_000;
+            };
         }
     })
 }
 
+
 fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
-    let mut count = 0 as usize;
+    let sink1 = sink.clone();
+    thread::spawn(move || {
+        loop {
+            sleep(Duration::from_millis(100));
+            sink1.add_idle_callback(move |data: &mut AppState| {
+                let x: usize = ARRAY.lock().unwrap().iter().sum();
+                data.count = x.to_string();
+                let x1: usize = ARRAY_SIZE.lock().unwrap().iter().sum();
+                data.size = x1.to_string();
+            });
+        }
+    });
+
     let listener = TcpListener::bind("127.0.0.1:7999").unwrap();
 
-    sink.add_idle_callback(move |data: &mut AppState| {
-        data.count = (data.count_from_index + count).to_string()
-    });
+
     thread::spawn(move || {
         for stream in listener.incoming() {
             let sender = tx_send.clone();
-            let sink = sink.clone();
             // Spawn a new thread to handle the connection
             thread::spawn(move || {
                 let reader = BufReader::new(stream.unwrap());
                 // Read lines from the socket
                 for line in reader.lines() {
                     sender.send(CommandMessage::InsertJson(line.unwrap())).unwrap_or(());
-                    count += 1;
-                    sink.add_idle_callback(move |data: &mut AppState| {
-                        data.count = (data.count_from_index + count).to_string()
-                    });
                 }
             });
         }

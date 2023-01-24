@@ -38,6 +38,7 @@ pub fn build_ui() -> impl Widget<AppState> {
         }).align_left())
         .with_child(Label::raw().lens(AppState::query_time))
         .with_child(Label::raw().lens(AppState::count))
+        .with_child(Label::raw().lens(AppState::size))
         .with_child(new_search_textbox())
         .with_flex_child(Scroll::new(items).vertical(), 1.);
 

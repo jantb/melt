@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::sync::atomic::Ordering;
 use std::time::Instant;
 use druid::{AppDelegate, Color, Command, DelegateCtx, Env, FontFamily, Handled, Selector, Target};
 use druid::im::Vector;
@@ -13,7 +12,6 @@ use syntect::util::LinesWithEndings;
 
 
 use crate::data::{AppState, Item, PointerState};
-use crate::GLOBAL_COUNT;
 use crate::index::{CommandMessage, ResultMessage};
 
 pub const SET_VIEW: Selector<String> = Selector::new("set_view");
@@ -78,8 +76,7 @@ impl AppDelegate<AppState> for Delegate {
             data.view_column = param.to_string();
             Handled::Yes
         } else if let Some(query) = cmd.get(SEARCH) {
-            data.count_from_index = GLOBAL_COUNT.load(Ordering::SeqCst);
-            data.items.clear();
+           data.items.clear();
             if query.is_empty() { return Handled::Yes; };
             let start = Instant::now();
             data.tx.send(CommandMessage::FilterRegex(query.to_string())).unwrap();

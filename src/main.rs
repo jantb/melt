@@ -10,7 +10,6 @@ unused_extern_crates
 
 #![windows_subsystem = "windows"]
 
-use std::sync::atomic::AtomicUsize;
 use crossbeam_channel::bounded;
 use druid::{AppLauncher, WindowDesc};
 use druid::text::RichTextBuilder;
@@ -29,7 +28,7 @@ mod index;
 mod delegate;
 
 use crate::index::{CommandMessage, search_thread};
-pub static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
 pub fn main() {
     let main_window = WindowDesc::new(build_ui())
         .title("Melt")
@@ -50,7 +49,7 @@ pub fn main() {
             pointers: Default::default(),
             query_time: "".to_string(),
             count: "0".to_string(),
-            count_from_index: 0,
+            size: "0".to_string(),
             settings: false,
             properties: Default::default(),
             view_column: "".to_string(),
