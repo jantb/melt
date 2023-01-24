@@ -141,7 +141,8 @@ impl Delegate {
             data.items.iter().for_each(|v| vec1.push(v.clone()));
 
             vec1.sort_by(|left, right| {
-                right.pointers.first().unwrap().cmp(left.pointers.first().unwrap())
+                right.pointers.first().unwrap_or(&"".to_string())
+                    .cmp(left.pointers.first().unwrap_or(&"".to_string()))
             });
             let mut sorted_vec: Vector<Item> = Vector::new();
             vec1.iter().for_each(|v| sorted_vec.push_back(v.clone()));
