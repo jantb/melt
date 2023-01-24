@@ -162,12 +162,14 @@ fn generate_pointers(json: &Value) -> Vec<String> {
     while let Some((current_path, current_json)) = stack.pop_back() {
         match current_json {
             Value::Object(map) => {
+                pointers.push(current_path.clone());
                 for (key, value) in map {
                     let new_path = format!("{}/{}", current_path, key);
                     stack.push_back((new_path, value));
                 }
             }
             Value::Array(arr) => {
+                pointers.push(current_path.clone());
                 for (i, value) in arr.iter().enumerate() {
                     let new_path = format!("{}/{}", current_path, i);
                     stack.push_back((new_path, value));
