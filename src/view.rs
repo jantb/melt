@@ -1,21 +1,39 @@
-use druid::{widget::TextBox, widget::{Button, Flex, Label, List}, Widget, WidgetExt, FontDescriptor, FontFamily, FontWeight};
-use druid::widget::{Checkbox, Container, Either, LineBreaking, Scroll, Split};
+use druid::{widget::TextBox, widget::{Button, Flex, Label, List}, Widget, WidgetExt, FontDescriptor, FontFamily, FontWeight, EventCtx, Event, Env};
+use druid::keyboard_types::Key::Enter;
+use druid::widget::{Checkbox, Container, Controller, Either, LineBreaking, Scroll, Split};
 
 use crate::data::*;
-use crate::delegate::{ CHECK_CLICKED_FOR_POINTER, SET_VIEW_COLUMN};
+use crate::delegate::{CHECK_CLICKED_FOR_POINTER, SEARCH, SET_VIEW_COLUMN};
 
 fn new_search_textbox() -> impl Widget<AppState> {
     let new_search_textbox = TextBox::new()
         .with_placeholder("Filter messages")
         .expand_width()
-        .lens(AppState::query);
-
-    let search_button = Button::new("Search").on_click(AppState::click_search);
+        .lens(AppState::query)
+        .controller(TakeFocus);
 
     Flex::row()
         .with_flex_child(new_search_textbox, 1.)
-        .with_child(search_button)
         .padding(8.0)
+}
+
+struct TakeFocus;
+
+impl<W: Widget<AppState>> Controller<AppState, W> for TakeFocus {
+    fn event(&mut self, child: &mut W, ctx: &mut EventCtx, event: &Event, data: &mut AppState, env: &Env) {
+        if let Event::WindowConnected = event {
+            ctx.request_focus();
+        }
+        if let Event::KeyUp(key) = event {
+            if key.key == Enter {
+                if trigram(data.query.as_str()).len() > 7 {
+                    ctx.submit_command(SEARCH.with(data.query.to_string()));
+                }
+            }
+        }
+
+        child.event(ctx, event, data, env)
+    }
 }
 
 fn documents() -> impl Widget<Item> {
@@ -85,4 +103,24 @@ pub fn build_ui() -> impl Widget<AppState> {
     either
 }
 
+pub fn trigram(word: &str) -> Vec<String> {
+    let mut word = word.to_string();
+    word.make_ascii_lowercase();
+    let chars: Vec<char> = word.chars().collect();
+    if chars.len() < 3 {
+        return vec![];
+    }
 
+    let mut trigrams = Vec::with_capacity(chars.len() - 2);
+    let mut seen = std::collections::HashSet::new();
+
+    for i in 1..chars.len() - 1 {
+        let trigram = &chars[i - 1..i + 2];
+        if !seen.contains(trigram) {
+            seen.insert(trigram);
+            trigrams.push(trigram.into_iter().collect());
+        }
+    }
+
+    trigrams
+}
