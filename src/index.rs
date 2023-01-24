@@ -109,7 +109,6 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
                     sender.send(CommandMessage::InsertJson(line.unwrap())).unwrap_or(());
                     count += 1;
                     sink.add_idle_callback(move |data: &mut AppState| {
-                        data.count_from_index = GLOBAL_COUNT.load(Ordering::SeqCst);
                         data.count = (data.count_from_index + count).to_string()
                     });
                 }
