@@ -70,7 +70,7 @@ impl AppDelegate<AppState> for Delegate {
             data.items.iter_mut().for_each(|item| {
                 let mut json: Value = serde_json::from_str(&item.text).unwrap();
                 let ptr = Pointer::try_from(param.as_str()).unwrap();
-                item.text = json.resolve_mut(&ptr).unwrap().to_string()
+                item.text = json.resolve_mut(&ptr).unwrap_or(&mut Value::String(item.text.to_string())).to_string()
             });
 
             data.view_column = param.to_string();
