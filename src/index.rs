@@ -75,11 +75,16 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                 Err(_) => {}
             };
 
-            match rx_send.recv_timeout(Duration::from_millis(100)) {
+            match rx_send.recv_timeout(Duration::from_micros(10)) {
                 Ok(cm) => {
                     match cm {
                         CommandMessage::InsertJson(cm) => {
                             index.add_message(&cm);
+                            let i = index.get_size();
+                            ARRAY.lock().unwrap()[thread as usize] = i;
+                            if i % 10000 == 0 {
+                                ARRAY_SIZE.lock().unwrap()[thread as usize] = index.get_size_bytes() / 1_000_000;
+                            };
                         }
 
                         CommandMessage::FilterRegex(_) => {}
@@ -91,12 +96,6 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                 }
                 Err(_) => {}
             }
-
-            let i = index.get_size();
-            ARRAY.lock().unwrap()[thread as usize] = i;
-            if i % 10000 == 0 {
-                ARRAY_SIZE.lock().unwrap()[thread as usize] = index.get_size_bytes() / 1_000_000;
-            };
         }
     })
 }

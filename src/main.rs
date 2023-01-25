@@ -50,6 +50,7 @@ pub fn main() {
             query_time: "".to_string(),
             count: "0".to_string(),
             size: "0".to_string(),
+            prob: "".to_string(),
             settings: false,
             properties: Default::default(),
             view_column: "".to_string(),

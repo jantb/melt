@@ -20,6 +20,7 @@ pub struct AppState {
     pub query_time: String,
     pub count : String,
     pub size : String,
+    pub prob : String,
     #[data(ignore)]
     pub settings : bool,
     pub properties: Vector<String>,

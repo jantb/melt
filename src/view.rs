@@ -25,8 +25,10 @@ impl<W: Widget<AppState>> Controller<AppState, W> for TakeFocus {
             ctx.request_focus();
         }
         if let Event::KeyUp(key) = event {
+            let prob = (0.6 as f32).powi(trigram(data.query.as_str()).len() as i32);
+            data.prob = convert_to_ratio(prob as f64,1.);
             if key.key == Enter {
-                if trigram(data.query.as_str()).len() > 7 {
+                if prob < 0.1 {
                     ctx.submit_command(SEARCH.with(data.query.to_string()));
                 }
             }
@@ -34,6 +36,13 @@ impl<W: Widget<AppState>> Controller<AppState, W> for TakeFocus {
 
         child.event(ctx, event, data, env)
     }
+}
+
+fn convert_to_ratio(probability: f64, total: f64) -> String {
+    if probability == 0.0 {
+        return "Total cannot be zero".to_string();
+    }
+    format!("1 in {}", (total/probability) as usize)
 }
 
 fn documents() -> impl Widget<Item> {
@@ -54,9 +63,10 @@ pub fn build_ui() -> impl Widget<AppState> {
         .with_child(Button::new("Settings").on_click(|_, data: &mut AppState, _env| {
             data.settings = !data.settings;
         }).align_left())
-        .with_child(Label::raw().lens(AppState::query_time))
-        .with_child(Label::raw().lens(AppState::count))
-        .with_child(Label::raw().lens(AppState::size))
+        .with_child(Label::raw().lens(AppState::query_time).align_right())
+        .with_child(Label::raw().lens(AppState::count).align_right())
+        .with_child(Label::raw().lens(AppState::size).align_right())
+        .with_child(Label::raw().lens(AppState::prob).align_right())
         .with_child(new_search_textbox())
         .with_flex_child(Scroll::new(items).vertical(), 1.);
 
