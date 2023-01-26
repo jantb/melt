@@ -20,42 +20,7 @@ pub fn search_thread(
     sink: ExtEventSink) -> JoinHandle<i32> {
     let (tx_send, rx_send) = bounded(0);
     socket_listener(tx_send, sink.clone());
-    let mut command_senders = vec![];
-    let mut result_receivers = vec![];
-    let mut handles = vec![];
-    for x in 0..num_cpus::get() {
-        let (t1, t2) = bounded(0);
-        let (t1res, t2res) = bounded(0);
-        command_senders.push(t1);
-        result_receivers.push(t2res);
-
-        handles.push(index_tread(t2, t1res, rx_send.clone(), x as u8))
-    };
-    let handle = thread::spawn(move || {
-        loop {
-            match rx_search.recv().unwrap() {
-                CommandMessage::FilterRegex(cm) => {
-                    command_senders.iter().for_each(|t| t.send(CommandMessage::FilterRegex(cm.clone())).unwrap());
-
-                    tx_res.send(ResultMessage::Messages(result_receivers.iter()
-                        .map(|r| match r.recv().unwrap()
-                        { ResultMessage::Messages(m) => { m } }).flatten().collect())).unwrap();
-                }
-                CommandMessage::InsertJson(_) => {}
-                CommandMessage::Quit => {
-                    command_senders.iter().for_each(|t| t.send(CommandMessage::Quit).unwrap());
-                    for x in handles {
-                        x.join().unwrap();
-                    }
-                    return 0;
-                }
-                CommandMessage::Clear => {
-                    command_senders.iter().for_each(|t| t.send(CommandMessage::Clear).unwrap());
-                }
-            }
-        }
-    });
-    handle
+    index_tread(rx_search, tx_res, rx_send.clone(), 1 as u8)
 }
 
 fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>, rx_send: Receiver<CommandMessage>, thread: u8) -> JoinHandle<i32> {
