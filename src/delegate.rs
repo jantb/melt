@@ -1,14 +1,9 @@
 use std::collections::VecDeque;
 use std::time::Instant;
-use druid::{AppDelegate, Color, Command, DelegateCtx, Env, FontFamily, Handled, Selector, Target};
+use druid::{AppDelegate, Command, DelegateCtx, Env, Handled, Selector, Target};
 use druid::im::Vector;
-use druid::text::RichTextBuilder;
 use jsonptr::{Pointer, ResolveMut};
 use serde_json::Value;
-use syntect::easy::HighlightLines;
-use syntect::highlighting::{Style, ThemeSet};
-use syntect::parsing::SyntaxSet;
-use syntect::util::LinesWithEndings;
 
 
 use crate::data::{AppState, Item, PointerState};
@@ -18,6 +13,7 @@ pub const SET_VIEW: Selector<String> = Selector::new("set_view");
 pub const SEARCH: Selector<String> = Selector::new("search");
 pub const CHECK_CLICKED_FOR_POINTER: Selector<PointerState> = Selector::new("clicked");
 pub const SET_VIEW_COLUMN: Selector<String> = Selector::new("set_view_column");
+pub const CHANGE_SETTINGS: Selector<bool> = Selector::new("set_view_column");
 
 pub struct Delegate;
 
@@ -31,48 +27,21 @@ impl AppDelegate<AppState> for Delegate {
         _env: &Env,
     ) -> Handled {
         if let Some(text) = cmd.get(SET_VIEW) {
-            let ps = SyntaxSet::load_defaults_newlines();
-            let ts = ThemeSet::load_defaults();
-
-            let syntax = ps.find_syntax_by_extension("json").unwrap();
-            // InspiredGitHub
-            // Solarized (dark)
-            // Solarized (light)
-            // base16-eighties.dark
-            // base16-mocha.dark
-            // base16-ocean.dark
-            // base16-ocean.light
-            let mut h = HighlightLines::new(syntax, &ts.themes["Solarized (dark)"]);
-
-            let mut builder = RichTextBuilder::new();
-            for line in LinesWithEndings::from(text.as_str()) { // LinesWithEndings enables use of newlines mode
-                let ranges: Vec<(Style, &str)> = h.highlight_line(line, &ps).unwrap();
-                for x in ranges {
-                    let foreground_color = x.0.foreground;
-
-                    builder.push(x.1)
-                        .font_family(FontFamily::MONOSPACE)
-                        .text_color(Color::rgba8(foreground_color.r, foreground_color.g, foreground_color.b, foreground_color.a));
-                }
-            }
             if data.pointers.is_empty() {
                 generate_pointers(&serde_json::from_str(&text.as_str()).unwrap()).iter().for_each(|v| data.pointers.push_front(PointerState {
                     text: v.to_string(),
                     checked: false,
                 }));
             }
-            data.view = builder.build();
+            data.view = text.to_string();
+            Handled::Yes
+        } else if let Some(b) = cmd.get(CHANGE_SETTINGS) {
+            data.settings = *b;
             Handled::Yes
         } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER) {
             data.pointers.iter_mut().for_each(|p| if p.text == pointer_state.text { p.checked = pointer_state.checked });
             Handled::Yes
         } else if let Some(param) = cmd.get(SET_VIEW_COLUMN) {
-            data.items.iter_mut().for_each(|item| {
-                let mut json: Value = serde_json::from_str(&item.text).unwrap();
-                let ptr = Pointer::try_from(param.as_str()).unwrap();
-                item.text = json.resolve_mut(&ptr).unwrap_or(&mut Value::String(item.text.to_string())).to_string()
-            });
-
             data.view_column = param.to_string();
             Handled::Yes
         } else if let Some(query) = cmd.get(SEARCH) {

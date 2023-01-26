@@ -3,7 +3,7 @@ use druid::keyboard_types::Key::Enter;
 use druid::widget::{Checkbox, Container, Controller, Either, LineBreaking, Scroll, Split};
 
 use crate::data::*;
-use crate::delegate::{CHECK_CLICKED_FOR_POINTER, SEARCH, SET_VIEW_COLUMN};
+use crate::delegate::{CHANGE_SETTINGS, CHECK_CLICKED_FOR_POINTER, SEARCH, SET_VIEW_COLUMN};
 
 fn new_search_textbox() -> impl Widget<AppState> {
     let new_search_textbox = TextBox::new()
@@ -26,7 +26,7 @@ impl<W: Widget<AppState>> Controller<AppState, W> for TakeFocus {
         }
         if let Event::KeyUp(key) = event {
             let prob = (0.6 as f32).powi(trigram(data.query.as_str()).len() as i32);
-            data.prob = convert_to_ratio(prob as f64,1.);
+            data.prob = convert_to_ratio(prob as f64, 1.);
             if key.key == Enter {
                 if prob < 0.1 {
                     ctx.submit_command(SEARCH.with(data.query.to_string()));
@@ -42,7 +42,7 @@ fn convert_to_ratio(probability: f64, total: f64) -> String {
     if probability == 0.0 {
         return "Total cannot be zero".to_string();
     }
-    format!("1 in {}", (total/probability) as usize)
+    format!("1 in {}", (total / probability) as usize)
 }
 
 fn documents() -> impl Widget<Item> {
@@ -60,8 +60,9 @@ fn documents() -> impl Widget<Item> {
 pub fn build_ui() -> impl Widget<AppState> {
     let items = List::new(documents).lens(AppState::items);
     let flex = Flex::column()
-        .with_child(Button::new("Settings").on_click(|_, data: &mut AppState, _env| {
-            data.settings = !data.settings;
+        .with_child(Button::new("Settings").on_click(|ctx, data: &mut AppState, _env| {
+            ctx.submit_command(CHANGE_SETTINGS.with(!data.settings));
+            ctx.request_update()
         }).align_left())
         .with_child(Label::raw().lens(AppState::query_time).align_right())
         .with_child(Label::raw().lens(AppState::count).align_right())
@@ -72,14 +73,15 @@ pub fn build_ui() -> impl Widget<AppState> {
 
     let container = Container::new(
         Split::columns(
-            flex, Scroll::new(Label::raw().with_line_break_mode(LineBreaking::WordWrap).lens(AppState::view)).vertical(),
-        ).min_size(300., 700.).split_point(0.2).draggable(true).solid_bar(true)
+            flex, Scroll::new(TextBox::multiline().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).with_line_wrapping(true).lens(AppState::view).expand_width()).vertical(),
+        ).min_size(300., 700.).split_point(0.2).draggable(true).solid_bar(true),
     );
 
     let flex_settings = Flex::column()
         .with_child(
-            Button::new("Close settings").on_click(|_, data: &mut AppState, _env| {
-                data.settings = !data.settings;
+            Button::new("Close settings").on_click(|ctx, data: &mut AppState, _env| {
+                ctx.submit_command(CHANGE_SETTINGS.with(!data.settings));
+                ctx.request_update();
             }).align_left())
         .with_child(Scroll::new(List::new(|| {
             Flex::row()
@@ -105,9 +107,8 @@ pub fn build_ui() -> impl Widget<AppState> {
             .lens(AppState::pointers).align_left());
 
     let either = Either::new(
-        |data, _env| data.settings,
-        flex_settings
-        ,
+        |data:&AppState, _env| data.settings,
+        flex_settings,
         container,
     );
     either

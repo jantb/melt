@@ -58,6 +58,9 @@ pub fn search_thread(
 fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>, rx_send: Receiver<CommandMessage>, thread: u8) -> JoinHandle<i32> {
     thread::spawn(move || {
         let mut index = get_search_index(thread);
+        let i = index.get_size();
+        ARRAY_SIZE.lock().unwrap()[thread as usize] = index.get_size_bytes() / 1_000_000;
+        ARRAY.lock().unwrap()[thread as usize] = i;
         loop {
             match rx_search.try_recv() {
                 Ok(cm) => {
@@ -108,9 +111,9 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
             sleep(Duration::from_millis(100));
             sink1.add_idle_callback(move |data: &mut AppState| {
                 let x: usize = ARRAY.lock().unwrap().iter().sum();
-                data.count = x.to_string();
+                data.count = format!("{} documents",x.to_string());
                 let x1: usize = ARRAY_SIZE.lock().unwrap().iter().sum();
-                data.size = x1.to_string();
+                data.size = format!("{} mb index",x1.to_string());
             });
         }
     });

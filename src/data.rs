@@ -5,7 +5,6 @@ use druid::EventCtx;
 use druid::Env;
 use druid::Data;
 use druid::im::Vector;
-use druid::text::RichText;
 use serde_json::Value;
 use uuid:: Uuid;
 use crate::delegate::{SEARCH, SET_VIEW};
@@ -15,7 +14,7 @@ use crate::index::{CommandMessage, ResultMessage};
 pub struct AppState {
     pub query: String,
     pub items: Vector<Item>,
-    pub view: RichText,
+    pub view: String,
     pub pointers: Vector<PointerState>,
     pub query_time: String,
     pub count : String,

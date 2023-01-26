@@ -12,7 +12,6 @@ unused_extern_crates
 
 use crossbeam_channel::bounded;
 use druid::{AppLauncher, WindowDesc};
-use druid::text::RichTextBuilder;
 use serde as _;
 
 mod data;
@@ -45,7 +44,7 @@ pub fn main() {
         .launch(AppState {
             query: "".to_string(),
             items: Default::default(),
-            view: RichTextBuilder::new().build(),
+            view: "".to_string(),
             pointers: Default::default(),
             query_time: "".to_string(),
             count: "0".to_string(),
