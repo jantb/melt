@@ -13,7 +13,7 @@ pub const SET_VIEW: Selector<String> = Selector::new("set_view");
 pub const SEARCH: Selector<String> = Selector::new("search");
 pub const CHECK_CLICKED_FOR_POINTER: Selector<PointerState> = Selector::new("clicked");
 pub const SET_VIEW_COLUMN: Selector<String> = Selector::new("set_view_column");
-pub const CHANGE_SETTINGS: Selector<bool> = Selector::new("set_view_column");
+pub const CHANGE_SETTINGS: Selector<bool> = Selector::new("change_setting");
 
 pub struct Delegate;
 
@@ -33,7 +33,11 @@ impl AppDelegate<AppState> for Delegate {
                     checked: false,
                 }));
             }
-            data.view = text.to_string();
+            if data.view_column.is_empty() {
+                data.view = text.to_string();
+            } else {
+                data.view = resolve_pointer(text, data.view_column.as_str())
+            }
             Handled::Yes
         } else if let Some(b) = cmd.get(CHANGE_SETTINGS) {
             data.settings = *b;
@@ -45,7 +49,7 @@ impl AppDelegate<AppState> for Delegate {
             data.view_column = param.to_string();
             Handled::Yes
         } else if let Some(query) = cmd.get(SEARCH) {
-           data.items.clear();
+            data.items.clear();
             if query.is_empty() { return Handled::Yes; };
             let start = Instant::now();
             data.tx.send(CommandMessage::FilterRegex(query.to_string())).unwrap();
@@ -74,26 +78,7 @@ impl Delegate {
         data.pointers.iter().for_each(|ps| {
             if ps.checked {
                 data.items.iter_mut().for_each(|item| {
-                    let mut json: Value = match serde_json::from_str(&item.text) {
-                        Ok(json) => json,
-                        Err(_) => {
-                            Value::Null
-                        }
-                    };
-                    let ptr = match Pointer::try_from(ps.text.as_str()) {
-                        Ok(ptr) => ptr,
-                        Err(_) => {
-                            Pointer::root()
-                        }
-                    };
-
-                    let string = match json.resolve_mut(&ptr) {
-                        Ok(v) => { v }
-                        Err(_) => { &Value::Null }
-                    };
-                    if string != &Value::Null {
-                        item.pointers.push(string.to_string());
-                    }
+                    item.pointers.push(resolve_pointer(item.text.as_str(), ps.text.as_str()));
                 });
                 empty_pointer = false;
             }
@@ -123,6 +108,30 @@ impl Delegate {
     }
 }
 
+fn resolve_pointer(text: &str, ps: &str) -> String {
+    let mut json: Value = match serde_json::from_str(text) {
+        Ok(json) => json,
+        Err(_) => {
+            Value::Null
+        }
+    };
+    let ptr = match Pointer::try_from(ps) {
+        Ok(ptr) => ptr,
+        Err(_) => {
+            Pointer::root()
+        }
+    };
+
+    let string = match json.resolve_mut(&ptr) {
+        Ok(v) => { v }
+        Err(_) => { &Value::Null }
+    };
+    if string != &Value::Null {
+        return string.to_string();
+    }
+    ps.to_string()
+}
+
 fn generate_pointers(json: &Value) -> Vec<String> {
     let mut pointers = vec![];
     let mut stack = VecDeque::new();
@@ -131,14 +140,14 @@ fn generate_pointers(json: &Value) -> Vec<String> {
     while let Some((current_path, current_json)) = stack.pop_back() {
         match current_json {
             Value::Object(map) => {
-                pointers.push(current_path.clone());
+                pointers.push(current_path.clone() + "/");
                 for (key, value) in map {
                     let new_path = format!("{}/{}", current_path, key);
                     stack.push_back((new_path, value));
                 }
             }
             Value::Array(arr) => {
-                pointers.push(current_path.clone());
+                pointers.push(current_path.clone() + "/");
                 for (i, value) in arr.iter().enumerate() {
                     let new_path = format!("{}/{}", current_path, i);
                     stack.push_back((new_path, value));

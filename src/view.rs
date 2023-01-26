@@ -74,7 +74,7 @@ pub fn build_ui() -> impl Widget<AppState> {
     let container = Container::new(
         Split::columns(
             flex, Scroll::new(TextBox::multiline().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).with_line_wrapping(true).lens(AppState::view).expand_width()).vertical(),
-        ).min_size(300., 700.).split_point(0.2).draggable(true).solid_bar(true),
+        ).min_size(500., 1000.).split_point(0.2).draggable(true).solid_bar(true),
     );
 
     let flex_settings = Flex::column()
