@@ -49,6 +49,9 @@ pub fn search_thread(
                     }
                     return 0;
                 }
+                CommandMessage::Clear => {
+                    command_senders.iter().for_each(|t| t.send(CommandMessage::Clear).unwrap());
+                }
             }
         }
     });
@@ -73,6 +76,11 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             return 0;
                         }
                         CommandMessage::InsertJson(_) => {}
+                        CommandMessage::Clear => {
+                            index.clear();
+                            ARRAY_SIZE.lock().unwrap()[thread as usize] = 0;
+                            ARRAY.lock().unwrap()[thread as usize] = 0;
+                        }
                     }
                 }
                 Err(_) => {}
@@ -90,11 +98,11 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             };
                         }
 
-                        CommandMessage::FilterRegex(_) => {}
                         CommandMessage::Quit => {
                             index.save_to_json().unwrap();
                             return 0;
                         }
+                        _ => {}
                     }
                 }
                 Err(_) => {}
@@ -139,6 +147,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
 #[derive(Clone)]
 pub enum CommandMessage {
     FilterRegex(String),
+    Clear,
     Quit,
     InsertJson(String),
 }

@@ -3,7 +3,7 @@ use druid::keyboard_types::Key::Enter;
 use druid::widget::{Checkbox, Container, Controller, Either, LineBreaking, Scroll, Split};
 
 use crate::data::*;
-use crate::delegate::{CHANGE_SETTINGS, CHECK_CLICKED_FOR_POINTER, SEARCH, SET_VIEW_COLUMN};
+use crate::delegate::{CHANGE_SETTINGS, CHECK_CLICKED_FOR_POINTER, CLEAR_DB, SEARCH, SET_VIEW_COLUMN};
 
 fn new_search_textbox() -> impl Widget<AppState> {
     let new_search_textbox = TextBox::new()
@@ -60,10 +60,13 @@ fn documents() -> impl Widget<Item> {
 pub fn build_ui() -> impl Widget<AppState> {
     let items = List::new(documents).lens(AppState::items);
     let flex = Flex::column()
-        .with_child(Button::new("Settings").on_click(|ctx, data: &mut AppState, _env| {
+        .with_child(Flex::row().with_child(Button::new("Settings").on_click(|ctx, data: &mut AppState, _env| {
             ctx.submit_command(CHANGE_SETTINGS.with(!data.settings));
             ctx.request_update()
-        }).align_left())
+        }).align_left()).with_child(Button::new("Clear").on_click(|ctx, _: &mut AppState, _env| {
+            ctx.submit_command(CLEAR_DB);
+            ctx.request_update()
+        }).align_right()))
         .with_child(Label::raw().lens(AppState::query_time).align_right())
         .with_child(Label::raw().lens(AppState::count).align_right())
         .with_child(Label::raw().lens(AppState::size).align_right())

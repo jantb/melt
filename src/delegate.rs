@@ -14,6 +14,7 @@ pub const SEARCH: Selector<String> = Selector::new("search");
 pub const CHECK_CLICKED_FOR_POINTER: Selector<PointerState> = Selector::new("clicked");
 pub const SET_VIEW_COLUMN: Selector<String> = Selector::new("set_view_column");
 pub const CHANGE_SETTINGS: Selector<bool> = Selector::new("change_setting");
+pub const CLEAR_DB: Selector = Selector::new("clear_db");
 
 pub struct Delegate;
 
@@ -47,6 +48,9 @@ impl AppDelegate<AppState> for Delegate {
             Handled::Yes
         } else if let Some(param) = cmd.get(SET_VIEW_COLUMN) {
             data.view_column = param.to_string();
+            Handled::Yes
+        } else if let Some(_) = cmd.get(CLEAR_DB) {
+            data.tx.send(CommandMessage::Clear).unwrap();
             Handled::Yes
         } else if let Some(query) = cmd.get(SEARCH) {
             data.items.clear();
