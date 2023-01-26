@@ -86,7 +86,7 @@ pub fn build_ui() -> impl Widget<AppState> {
                 ctx.submit_command(CHANGE_SETTINGS.with(!data.settings));
                 ctx.request_update();
             }).align_left())
-        .with_child(Scroll::new(List::new(|| {
+        .with_flex_child(Scroll::new(List::new(|| {
             Flex::row()
                 .with_child(Checkbox::new("").lens(PointerState::checked)
                     .on_click(|ctx, pointer_state, _env| {
@@ -99,15 +99,15 @@ pub fn build_ui() -> impl Widget<AppState> {
                 )
         }))
             .vertical()
-            .lens(AppState::pointers).align_left())
+            .lens(AppState::pointers).align_left(),1.)
         .with_child(Label::new("Select view tag:").padding(8.0).align_left())
-        .with_child(Scroll::new(List::new(|| {
+        .with_flex_child(Scroll::new(List::new(|| {
             Label::new(|item: &PointerState, _env: &_| format!("{}", item.text)).on_click(|ctx, item, _env| {
                 ctx.submit_command(SET_VIEW_COLUMN.with(item.text.to_string()));
             })
         }))
             .vertical()
-            .lens(AppState::pointers).align_left());
+            .lens(AppState::pointers).align_left(),1.);
 
     let either = Either::new(
         |data:&AppState, _env| data.settings,
