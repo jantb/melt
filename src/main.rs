@@ -32,13 +32,13 @@ pub fn main() {
     let main_window = WindowDesc::new(build_ui())
         .title("Melt")
         .window_size((1000.0, 400.0));
-    let (tx_res, rx_res) = bounded(0);
-    let (tx_search, rx_search) = bounded(0);
+    let (tx_res, rx_res) = bounded(10);
+    let (tx_search, rx_search) = bounded(10);
 
 
     let launcher = AppLauncher::with_window(main_window);
     let sink = launcher.get_external_handle();
-    let handle = search_thread(rx_search, tx_res, sink);
+    let handle = search_thread(rx_search, tx_search.clone(), tx_res, sink);
     launcher
         .delegate(Delegate {})
         .launch(AppState {
@@ -57,6 +57,6 @@ pub fn main() {
             rx: rx_res,
         })
         .expect("Failed to launch application");
-    tx_search.clone().send(CommandMessage::Quit).unwrap();
+    tx_search.send(CommandMessage::Quit).unwrap();
     handle.join().unwrap();
 }

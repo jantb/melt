@@ -6,7 +6,7 @@ use std::fs::File;
 use std::thread::{JoinHandle, sleep};
 use std::time::Duration;
 use bincode::deserialize;
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender};
 use druid::ExtEventSink;
 use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
@@ -18,11 +18,11 @@ pub static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_SIZE: AtomicUsize = AtomicUsize::new(0);
 
 pub fn search_thread(
-    rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>,
+    rx_search: Receiver<CommandMessage>,
+    tx_search: Sender<CommandMessage>, tx_res: Sender<ResultMessage>,
     sink: ExtEventSink) -> JoinHandle<i32> {
-    let (tx_send, rx_send) = bounded(0);
-    socket_listener(tx_send, sink.clone());
-    index_tread(rx_search, tx_res, rx_send.clone())
+    socket_listener(tx_search, sink.clone());
+    index_tread(rx_search, tx_res)
 }
 
 fn default_conn() -> DBWithThreadMode<SingleThreaded> {
@@ -38,7 +38,7 @@ fn default_conn() -> DBWithThreadMode<SingleThreaded> {
     db
 }
 
-fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>, rx_send: Receiver<CommandMessage>) -> JoinHandle<i32> {
+fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>) -> JoinHandle<i32> {
     thread::spawn(move || {
         let conn = default_conn();
 
@@ -47,16 +47,16 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
         GLOBAL_SIZE.store(index.get_size_bytes() / 1_000_000, Ordering::SeqCst);
 
         loop {
-            match rx_search.try_recv() {
+            match rx_search.recv() {
                 Ok(cm) => {
                     match cm {
-                        CommandMessage::Filter(query) => {
-                            let keys: Vec<Vec<u8>> = index.search(&query).iter().map(|x| x.to_le_bytes().to_vec()).collect();
+                        CommandMessage::Filter( query) => {
+                            let keys: Vec<Vec<u8>> = index.search(query.as_str()).iter().map(|x| x.to_le_bytes().to_vec()).collect();
 
                             let result: Vec<String> = conn.multi_get(keys).par_iter()
                                 .map(|result| result.as_ref().ok())
                                 .map(|opt| opt.map(|vec| String::from_utf8(vec.clone().unwrap()).unwrap()).unwrap())
-                                .filter(|s| s.contains(&query))
+                                .filter(|s| s.contains(query.as_str()))
                                 .collect();
 
                             tx_res.send(ResultMessage::Messages(result)).unwrap();
@@ -66,22 +66,6 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
 
                             return 0;
                         }
-                        CommandMessage::InsertJson(_) => {}
-                        CommandMessage::Clear => {
-                            index.clear();
-                            GLOBAL_SIZE.store(index.get_size_bytes() / 1_000_000, Ordering::SeqCst);
-                            let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-                            let path = format!("{}/.melt.db", buf);
-                            let _ = DB::destroy(&Options::default(), path);
-                        }
-                    }
-                }
-                Err(_) => {}
-            };
-
-            match rx_send.recv_timeout(Duration::from_micros(10)) {
-                Ok(cm) => {
-                    match cm {
                         CommandMessage::InsertJson(cm) => {
                             let count = GLOBAL_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
                             index.add_message(&cm, count);
@@ -91,16 +75,18 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                                 GLOBAL_SIZE.store(index.get_size_bytes() / 1_000_000, Ordering::SeqCst);
                             };
                         }
-
-                        CommandMessage::Quit => {
-                            write_index_to_disk(&index);
-                            return 0;
+                        CommandMessage::Clear => {
+                            index.clear();
+                            GLOBAL_SIZE.store(0, Ordering::SeqCst);
+                            GLOBAL_COUNT.store(0, Ordering::SeqCst);
+                            let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+                            let path = format!("{}/.melt.db", buf);
+                            let _ = DB::destroy(&Options::default(), path);
                         }
-                        _ => {}
                     }
                 }
                 Err(_) => {}
-            }
+            };
         }
     })
 }
