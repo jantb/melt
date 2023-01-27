@@ -56,7 +56,7 @@ impl AppDelegate<AppState> for Delegate {
             data.items.clear();
             if query.is_empty() { return Handled::Yes; };
             let start = Instant::now();
-            data.tx.send(CommandMessage::FilterRegex(query.to_string())).unwrap();
+            data.tx.send(CommandMessage::Filter(query.to_string())).unwrap();
             match data.rx.recv().unwrap() {
                 ResultMessage::Messages(m) => {
                     let duration = start.elapsed();

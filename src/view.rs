@@ -50,11 +50,9 @@ fn documents() -> impl Widget<Item> {
         .with_weight(FontWeight::BOLD);
     let label = Label::raw().with_font(font).with_line_break_mode(LineBreaking::Clip)
         .expand_width().lens(Item::view).on_click(Item::click_view);
-    let copy = Button::new("Copy").on_click(Item::click_copy);
 
     Flex::row()
         .with_flex_child(label, 1.)
-        .with_child(copy)
 }
 
 pub fn build_ui() -> impl Widget<AppState> {
