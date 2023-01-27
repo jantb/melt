@@ -35,9 +35,9 @@ impl AppDelegate<AppState> for Delegate {
                 }));
             }
             if data.view_column.is_empty() {
-                data.view = text.to_string();
+                data.view = parse_json(text.to_string().as_str());
             } else {
-                data.view = resolve_pointer(text, data.view_column.as_str())
+                data.view = parse_json(resolve_pointer(text, data.view_column.as_str()).as_str())
             }
             Handled::Yes
         } else if let Some(b) = cmd.get(CHANGE_SETTINGS) {
@@ -161,4 +161,11 @@ fn generate_pointers(json: &Value) -> Vec<String> {
         }
     }
     pointers
+}
+
+fn parse_json(s: &str) -> String {
+    match serde_json::from_str::<Value>(s) {
+        Ok(json) => serde_json::to_string_pretty(&json).unwrap(),
+        Err(_) => s.to_string(),
+    }
 }

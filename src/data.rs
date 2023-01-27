@@ -81,8 +81,8 @@ impl Item {
     }
 
     pub fn click_view(ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
-        let json_value: Value = serde_json::from_str(&data.text).unwrap();
-        let pretty_json_string = serde_json::to_string_pretty(&json_value).unwrap();
-        ctx.submit_command(SET_VIEW.with(pretty_json_string));
+        let x = &data.text;
+        let string = x.to_string();
+        ctx.submit_command(SET_VIEW.with(string));
     }
 }
