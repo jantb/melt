@@ -5,7 +5,6 @@ use druid::EventCtx;
 use druid::Env;
 use druid::Data;
 use druid::im::Vector;
-use serde_json::Value;
 use uuid:: Uuid;
 use crate::delegate::{SEARCH, SET_VIEW};
 
