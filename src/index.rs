@@ -11,7 +11,7 @@ use druid::ExtEventSink;
 use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
 use rayon::prelude::*;
-use rocksdb::{DB, DBCompressionType, DBWithThreadMode, Options, SingleThreaded};
+use rocksdb::{DB, DBWithThreadMode, Options, SingleThreaded};
 use crate::data::AppState;
 
 pub static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -25,24 +25,18 @@ pub fn search_thread(
     index_tread(rx_search, tx_res)
 }
 
-fn default_conn() -> DBWithThreadMode<SingleThreaded> {
-    let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-    let path = format!("{}/.melt.db", buf);
-    let mut opts = Options::default();
-    opts.create_if_missing(true);
-    opts.create_missing_column_families(true);
-    opts.set_compression_type(DBCompressionType::Zstd);
-    opts.set_zstd_max_train_bytes(100 * 16384);
-    opts.optimize_for_point_lookup(10);
-    let db: DBWithThreadMode<SingleThreaded> = DBWithThreadMode::open_cf(&opts, path, &["default"]).unwrap();
-    db
-}
-
 fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>) -> JoinHandle<i32> {
     thread::spawn(move || {
-        let conn = default_conn();
+        let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+        let path = format!("{}/.melt.db", buf);
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.create_missing_column_families(true);
+        opts.increase_parallelism(8);
+        opts.optimize_for_point_lookup(10);
+        let conn: DBWithThreadMode<SingleThreaded> = DBWithThreadMode::open_cf(&opts, path, &["default"]).unwrap();
 
-        let mut index = load_from_json();
+       let mut index = load_from_json();
         GLOBAL_COUNT.store(index.get_size(), Ordering::SeqCst);
         GLOBAL_SIZE.store(index.get_size_bytes() / 1_000_000, Ordering::SeqCst);
 
@@ -50,15 +44,18 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
             match rx_search.recv() {
                 Ok(cm) => {
                     match cm {
-                        CommandMessage::Filter( query) => {
+                        CommandMessage::Filter(query) => {
                             let keys: Vec<Vec<u8>> = index.search(query.as_str()).iter().map(|x| x.to_le_bytes().to_vec()).collect();
 
+                            let string = query.to_lowercase();
+                            let lowercase = string.as_str();
                             let result: Vec<String> = conn.multi_get(keys).par_iter()
                                 .map(|result| result.as_ref().ok())
                                 .map(|opt| opt.map(|vec| String::from_utf8(vec.clone().unwrap()).unwrap()).unwrap())
-                                .filter(|s| s.contains(query.as_str()))
+                                .filter(|s| {
+                                    s.to_lowercase().contains(lowercase)
+                                })
                                 .collect();
-
                             tx_res.send(ResultMessage::Messages(result)).unwrap();
                         }
                         CommandMessage::Quit => {
@@ -67,11 +64,10 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             return 0;
                         }
                         CommandMessage::InsertJson(cm) => {
-                            let count = GLOBAL_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
-                            index.add_message(&cm, count);
-                            conn.put(count.to_le_bytes(), cm).unwrap();
-                            let i = index.get_size();
-                            if i % 10000 == 0 {
+                            let key = index.add(&cm);
+                            conn.put(key.to_le_bytes(), cm).unwrap();
+                            GLOBAL_COUNT.store(1 + key, Ordering::SeqCst);
+                            if key % 10000 == 0 {
                                 GLOBAL_SIZE.store(index.get_size_bytes() / 1_000_000, Ordering::SeqCst);
                             };
                         }
