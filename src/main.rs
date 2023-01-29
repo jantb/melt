@@ -48,6 +48,7 @@ pub fn main() {
     let parameters = load_from_json();
     let state = AppState {
         query: "".to_string(),
+        not_query: "".to_string(),
         exact: false,
         items: Default::default(),
         view: "".to_string(),

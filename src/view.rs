@@ -13,17 +13,24 @@ fn new_search_textbox() -> impl Widget<AppState> {
         .expand_width()
         .lens(AppState::query)
         .controller(TakeFocus);
+    let new_search_textbox_neq = TextBox::new()
+        .with_placeholder("Filter away messages")
+        .expand_width()
+        .lens(AppState::not_query)
+        .controller(ControllerForNegSearch);
 
     Flex::row()
         .with_flex_child(new_search_textbox, 1.)
+        .with_flex_child(new_search_textbox_neq, 1.)
         .with_child(Checkbox::new("Exact").lens(AppState::exact)).padding(5.).on_click(|ctx, data: &mut AppState, _env| {
-        ctx.submit_command(SEARCH.with((data.query.to_string(), data.exact)));
+        ctx.submit_command(SEARCH.with(((data.query.to_string(), data.not_query.to_string()), data.exact)));
         ctx.request_update()
     })
         .padding(8.0)
 }
 
 struct TakeFocus;
+struct ControllerForNegSearch;
 
 impl<W: Widget<AppState>> Controller<AppState, W> for TakeFocus {
     fn event(&mut self, child: &mut W, ctx: &mut EventCtx, event: &Event, data: &mut AppState, env: &Env) {
@@ -33,7 +40,19 @@ impl<W: Widget<AppState>> Controller<AppState, W> for TakeFocus {
         if let Event::KeyUp(_) = event {
             let prob = (0.6 as f32).powi(trigram(data.query.as_str()).len() as i32);
             data.prob = convert_to_ratio(prob as f64, 1., GLOBAL_COUNT.load(Ordering::SeqCst));
-            ctx.submit_command(SEARCH.with((data.query.to_string(), data.exact)));
+            ctx.submit_command(SEARCH.with(((data.query.to_string(),data.not_query.to_string()), data.exact)));
+        }
+
+        child.event(ctx, event, data, env)
+    }
+}
+impl<W: Widget<AppState>> Controller<AppState, W> for ControllerForNegSearch {
+    fn event(&mut self, child: &mut W, ctx: &mut EventCtx, event: &Event, data: &mut AppState, env: &Env) {
+
+        if let Event::KeyUp(_) = event {
+            let prob = (0.6 as f32).powi(trigram(data.query.as_str()).len() as i32);
+            data.prob = convert_to_ratio(prob as f64, 1., GLOBAL_COUNT.load(Ordering::SeqCst));
+            ctx.submit_command(SEARCH.with(((data.query.to_string(),data.not_query.to_string()), data.exact)));
         }
 
         child.event(ctx, event, data, env)
@@ -77,7 +96,7 @@ pub fn build_ui() -> impl Widget<AppState> {
     let container = Container::new(
         Split::columns(
             flex, Scroll::new(TextBox::multiline().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).with_line_wrapping(true).lens(AppState::view).expand_width()).vertical(),
-        ).min_size(500., 1000.).split_point(0.2).draggable(true).solid_bar(true),
+        ).min_size(700., 1000.).split_point(0.2).draggable(true).solid_bar(true),
     );
 
     let flex_settings = Flex::column()

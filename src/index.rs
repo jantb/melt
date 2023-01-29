@@ -1,4 +1,5 @@
 use std::{fs, thread};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Error, Read};
 use std::net::TcpListener;
@@ -81,10 +82,18 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
             match rx_search.recv() {
                 Ok(cm) => {
                     match cm {
-                        CommandMessage::Filter(query, exact) => {
+                        CommandMessage::Filter(query, neg_query, exact) => {
                             let start = Instant::now();
-                            let keys: Vec<Vec<u8>> = index.search(query.as_str(), exact).iter().map(|x| x.to_le_bytes().to_vec()).collect();
+                            let positive_keys = index.search(query.as_str(), exact);
+                            let mut negative_keys = index.search(neg_query.as_str(), exact);
+
+
                             let duration_index = start.elapsed();
+                            let set: HashSet<usize> = positive_keys.iter().cloned().collect();
+                            negative_keys.retain(|x| set.contains(x));
+                            let neg_set: HashSet<usize> = negative_keys.iter().cloned().collect();
+
+                            let keys: Vec<Vec<u8>> = positive_keys.iter().map(|x| x.to_le_bytes().to_vec()).collect();
                             let string = query.to_lowercase();
                             let lowercase = string.as_str();
                             let index_hits = keys.len();
@@ -94,14 +103,28 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             let mut processed = 0;
                             keys.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < 50).for_each(|v| {
                                 processed += 100;
-                                result.extend(conn.multi_get(v).par_iter()
-                                    .map(|result| result.as_ref().ok())
-                                    .map(|opt| opt.map(|vec| String::from_utf8(vec.clone().unwrap()).unwrap()).unwrap())
+                                result.extend(conn.multi_get(v).par_iter().enumerate()
+                                    .map(|(v_i, result)| (v_i, result.as_ref().ok()))
+                                    .map(|v_i_opt| (v_i_opt.0, v_i_opt.1.map(|vec| String::from_utf8(vec.clone().unwrap()).unwrap()).unwrap()))
                                     .filter(|s| {
-                                        if exact { s.to_lowercase().contains(lowercase) } else {
-                                            query.to_lowercase().split(" ").all(|q| s.to_lowercase().contains(q))
+                                        let vec = v[s.0].clone();
+                                        let usize = u64::from_le_bytes(vec[..].try_into().unwrap()) as usize;
+                                        if exact {
+                                            if neg_set.contains(&usize) {
+                                                if s.1.to_lowercase().contains(neg_query.as_str()) {
+                                                    return false;
+                                                }
+                                            }
+                                            s.1.to_lowercase().contains(lowercase)
+                                        } else {
+                                            if neg_set.contains(&usize) {
+                                                if neg_query.to_lowercase().split(" ").any(|q| s.1.to_lowercase().contains(q)) {
+                                                    return false;
+                                                }
+                                            }
+                                            query.to_lowercase().split(" ").all(|q| s.1.to_lowercase().contains(q))
                                         }
-                                    })
+                                    }).map(|s| s.1)
                                     .collect::<Vec<String>>());
                             });
                             if processed > index_hits {
@@ -181,7 +204,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
 
 #[derive(Clone)]
 pub enum CommandMessage {
-    Filter(String, bool),
+    Filter(String, String, bool),
     Clear,
     Quit,
     InsertJson(String),

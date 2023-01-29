@@ -15,6 +15,7 @@ use crate::index::{CommandMessage, ResultMessage};
 #[derive(Clone, Data, Lens)]
 pub struct AppState {
     pub query: String,
+    pub not_query: String,
     pub exact: bool,
     pub items: Vector<Item>,
     pub view: String,
@@ -72,7 +73,7 @@ pub struct PointerStateItem {
 
 impl AppState {
     pub fn click_search(ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
-        ctx.submit_command(SEARCH.with((data.query.to_string(), data.exact)));
+        ctx.submit_command(SEARCH.with(((data.query.to_string(),data.not_query.to_string()) , data.exact)));
     }
 }
 
