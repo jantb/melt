@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
+
 use druid::{AppDelegate, Command, DelegateCtx, Env, Handled, Selector, Target};
 use druid::im::Vector;
 use jsonptr::{Pointer, ResolveMut};
 use serde_json::Value;
-
 
 use crate::data::{AppState, Item, PointerState};
 use crate::index::{CommandMessage, ResultMessage};
@@ -36,7 +36,10 @@ impl AppDelegate<AppState> for Delegate {
             if data.view_column.is_empty() {
                 data.view = parse_json(text.to_string().as_str());
             } else {
-                data.view = parse_json(resolve_pointer(text, data.view_column.as_str()).as_str())
+                let pointer = resolve_pointer(text, data.view_column.as_str());
+                let string = parse_json(pointer.as_str());
+
+                data.view = string
             }
             Handled::Yes
         } else if let Some(b) = cmd.get(CHANGE_SETTINGS) {
@@ -54,7 +57,7 @@ impl AppDelegate<AppState> for Delegate {
         } else if let Some(q) = cmd.get(SEARCH) {
             data.items.clear();
             if q.0.0.is_empty() { return Handled::Yes; };
-            data.tx.send(CommandMessage::Filter(q.0.0.to_string(),q.0.1.to_string(), q.1)).unwrap();
+            data.tx.send(CommandMessage::Filter(q.0.0.to_string(),q.0.1.to_string(), q.1, data.timelimit as u64)).unwrap();
             match data.rx.recv().unwrap() {
                 ResultMessage::Messages(m,s) => {
                     data.query_time = s;
@@ -127,7 +130,8 @@ fn resolve_pointer(text: &str, ps: &str) -> String {
         Ok(v) => { v }
         Err(_) => { &Value::Null }
     };
-    if string != &Value::Null {
+    if string.is_string() {return string.as_str().unwrap().to_string() }
+    if string.is_null() {
         return string.to_string();
     }
     ps.to_string()

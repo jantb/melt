@@ -13,31 +13,32 @@ unused_extern_crates
 use std::fs;
 use std::fs::File;
 use std::io::{Error, Read};
+
 use bincode::deserialize;
 use crossbeam_channel::bounded;
-use druid::{AppLauncher, WindowDesc};
+use druid::{AppLauncher, WindowDesc, WindowState};
 use druid::im::Vector;
 use serde as _;
 
-mod data;
-
 use data::AppState;
-
-mod view;
-
 use view::build_ui;
+
 use crate::data::SerializableParameters;
 use crate::delegate::Delegate;
+use crate::index::{CommandMessage, search_thread};
+
+mod data;
+
+mod view;
 
 mod index;
 mod delegate;
 
-use crate::index::{CommandMessage, search_thread};
-
 pub fn main() {
     let main_window = WindowDesc::new(build_ui())
         .title("Melt")
-        .window_size((1000.0, 400.0));
+        .window_size((1024.0, 768.0))
+        .set_window_state(WindowState::Maximized);
     let (tx_res, rx_res) = bounded(10);
     let (tx_search, rx_search) = bounded(10);
 
@@ -48,6 +49,7 @@ pub fn main() {
     let parameters = load_from_json();
     let state = AppState {
         query: "".to_string(),
+        timelimit: 50.0,
         not_query: "".to_string(),
         exact: false,
         items: Default::default(),

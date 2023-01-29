@@ -1,4 +1,5 @@
 use std::fs;
+
 use clipboard::{ClipboardContext, ClipboardProvider};
 use crossbeam_channel::{Receiver, Sender};
 use druid::Data;
@@ -15,6 +16,7 @@ use crate::index::{CommandMessage, ResultMessage};
 #[derive(Clone, Data, Lens)]
 pub struct AppState {
     pub query: String,
+    pub timelimit: f64,
     pub not_query: String,
     pub exact: bool,
     pub items: Vector<Item>,

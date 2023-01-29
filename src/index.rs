@@ -12,6 +12,7 @@ use crossbeam_channel::{Receiver, Sender};
 use druid::ExtEventSink;
 use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
+use num_format::{Locale, ToFormattedString};
 use rayon::prelude::*;
 use rocksdb::{BlockBasedOptions, Cache, DB, DBCompactionStyle, DBCompressionType, DBWithThreadMode, Options, SingleThreaded};
 
@@ -82,7 +83,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
             match rx_search.recv() {
                 Ok(cm) => {
                     match cm {
-                        CommandMessage::Filter(query, neg_query, exact) => {
+                        CommandMessage::Filter(query, neg_query, exact, time) => {
                             let start = Instant::now();
                             let positive_keys = index.search(query.as_str(), exact);
                             let mut negative_keys = index.search(neg_query.as_str(), exact);
@@ -101,7 +102,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             let start = Instant::now();
                             let mut result = vec![];
                             let mut processed = 0;
-                            keys.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < 50).for_each(|v| {
+                            keys.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < time as u128).for_each(|v| {
                                 processed += 100;
                                 result.extend(conn.multi_get(v).par_iter().enumerate()
                                     .map(|(v_i, result)| (v_i, result.as_ref().ok()))
@@ -111,7 +112,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                                         let usize = u64::from_le_bytes(vec[..].try_into().unwrap()) as usize;
                                         if exact {
                                             if neg_set.contains(&usize) {
-                                                if s.1.to_lowercase().contains(neg_query.as_str()) {
+                                                if s.1.to_lowercase().contains(neg_query.to_lowercase().as_str()) {
                                                     return false;
                                                 }
                                             }
@@ -132,7 +133,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             }
                             let duration_db = start.elapsed();
                             let res_size = result.len();
-                            tx_res.send(ResultMessage::Messages(result, format!("Index        {:?}\nIndex hits   {:?}\nRetrieve     {:?}\nProcessed    {:?}\nResults      {}", duration_index, index_hits, duration_db, processed, res_size))).unwrap();
+                            tx_res.send(ResultMessage::Messages(result, format!("Index        {:?}\nIndex hits   {}\nRetrieve     {:?}\nProcessed    {}\nResults      {}", duration_index, index_hits.to_formatted_string(&Locale::en), duration_db, processed.to_formatted_string(&Locale::en), res_size.to_formatted_string(&Locale::en)))).unwrap();
                         }
                         CommandMessage::Quit => {
                             write_index_to_disk(&index);
@@ -178,8 +179,8 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
         loop {
             sleep(Duration::from_millis(100));
             sink1.add_idle_callback(move |data: &mut AppState| {
-                data.count = format!("Documents    {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_string());
-                data.size = format!("Index size   {}", GLOBAL_SIZE.load(Ordering::SeqCst).to_string());
+                data.count = format!("Documents    {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
+                data.size = format!("Index size   {}", GLOBAL_SIZE.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
             });
         }
     });
@@ -204,7 +205,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
 
 #[derive(Clone)]
 pub enum CommandMessage {
-    Filter(String, String, bool),
+    Filter(String, String, bool, u64),
     Clear,
     Quit,
     InsertJson(String),

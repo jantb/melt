@@ -1,7 +1,7 @@
 use std::sync::atomic::Ordering;
 
 use druid::{Env, Event, EventCtx, FontDescriptor, FontFamily, FontWeight, widget::{Button, Flex, Label, List}, Widget, widget::TextBox, WidgetExt};
-use druid::widget::{Checkbox, Container, Controller, Either, LineBreaking, Scroll, Split};
+use druid::widget::{Checkbox, Container, Controller, Either, LineBreaking, Scroll, Slider, Split};
 
 use crate::data::*;
 use crate::delegate::{CHANGE_SETTINGS, CHECK_CLICKED_FOR_POINTER, CLEAR_DB, SEARCH, SET_VIEW_COLUMN};
@@ -9,24 +9,23 @@ use crate::index::GLOBAL_COUNT;
 
 fn new_search_textbox() -> impl Widget<AppState> {
     let new_search_textbox = TextBox::new()
-        .with_placeholder("Filter messages")
+        .with_placeholder("Filter documents")
         .expand_width()
         .lens(AppState::query)
         .controller(TakeFocus);
     let new_search_textbox_neq = TextBox::new()
-        .with_placeholder("Filter away messages")
+        .with_placeholder("Filter away documents")
         .expand_width()
         .lens(AppState::not_query)
         .controller(ControllerForNegSearch);
 
     Flex::row()
-        .with_flex_child(new_search_textbox, 1.)
-        .with_flex_child(new_search_textbox_neq, 1.)
-        .with_child(Checkbox::new("Exact").lens(AppState::exact)).padding(5.).on_click(|ctx, data: &mut AppState, _env| {
+        .with_flex_child(new_search_textbox.padding(5.), 1.)
+        .with_flex_child(new_search_textbox_neq.padding(5.), 1.)
+        .with_child(Checkbox::new("Exact").lens(AppState::exact)).on_click(|ctx, data: &mut AppState, _env| {
         ctx.submit_command(SEARCH.with(((data.query.to_string(), data.not_query.to_string()), data.exact)));
         ctx.request_update()
     })
-        .padding(8.0)
 }
 
 struct TakeFocus;
@@ -90,6 +89,14 @@ pub fn build_ui() -> impl Widget<AppState> {
         .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::count).align_left())
         .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::size).align_left())
         .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::prob).align_left())
+        .with_child(Label::dynamic(|value: &AppState, _| {
+            format!("Timelimit: {:?} ms", value.timelimit as u64)
+        }).with_font(FontDescriptor::new(FontFamily::MONOSPACE)).align_left())
+        .with_child(Slider::new()
+            .with_range(10.0, 5000.0)
+            .with_step(1.0)
+            .lens(AppState::timelimit)
+            .align_left().expand_width())
         .with_child(new_search_textbox())
         .with_flex_child(Scroll::new(items).vertical(), 1.);
 
