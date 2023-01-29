@@ -36,7 +36,7 @@ mod delegate;
 
 pub fn main() {
     let main_window = WindowDesc::new(build_ui())
-        .title("Melt")
+        .title("Melt listening on socket://localhost:7999 expected format is JSON Lines https://jsonlines.org")
         .window_size((1024.0, 768.0))
         .set_window_state(WindowState::Maximized);
     let (tx_res, rx_res) = bounded(10);
