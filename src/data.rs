@@ -1,14 +1,17 @@
+use std::fs;
 use clipboard::{ClipboardContext, ClipboardProvider};
 use crossbeam_channel::{Receiver, Sender};
-use druid::Lens;
-use druid::EventCtx;
-use druid::Env;
 use druid::Data;
+use druid::Env;
+use druid::EventCtx;
 use druid::im::Vector;
-use uuid:: Uuid;
-use crate::delegate::{SEARCH, SET_VIEW};
+use druid::Lens;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
+use crate::delegate::{SEARCH, SET_VIEW};
 use crate::index::{CommandMessage, ResultMessage};
+
 #[derive(Clone, Data, Lens)]
 pub struct AppState {
     pub query: String,
@@ -17,32 +20,54 @@ pub struct AppState {
     pub view: String,
     pub pointers: Vector<PointerState>,
     pub query_time: String,
-    pub count : String,
-    pub size : String,
-    pub prob : String,
+    pub count: String,
+    pub size: String,
+    pub prob: String,
     #[data(ignore)]
-    pub settings : bool,
+    pub settings: bool,
     pub properties: Vector<String>,
     pub view_column: String,
-
 
     #[data(ignore)]
     pub tx: Sender<CommandMessage>,
     #[data(ignore)]
     pub rx: Receiver<ResultMessage>,
 }
-
-#[derive(Clone, Data, Lens)]
-pub struct PointerState{
-    pub text : String,
-    pub checked: bool
+impl Drop for AppState {
+    fn drop(&mut self) {
+        let parameters = self.get_serializable_parameters();
+        let serialized: Vec<u8> = bincode::serialize(&parameters).unwrap();
+        let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+        let path = format!("{}/.melt_state.dat", buf);
+        fs::write(path, serialized).unwrap();
+    }
 }
 
-#[derive(Clone, Data, Lens)]
-pub struct PointerStateItem{
-    pub text : String,
-    pub resolved : String,
-    pub checked: bool
+impl AppState {
+    fn get_serializable_parameters(&self) -> SerializableParameters {
+        SerializableParameters { view_column: self.view_column.to_string(),
+            pointer_state: self.pointers.iter().map(|p| p.clone()).collect::<Vec<PointerState>>()
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SerializableParameters {
+    pub view_column: String,
+    pub pointer_state: Vec<PointerState>,
+}
+
+#[derive(Clone, Data, Lens, Serialize, Deserialize)]
+pub struct PointerState {
+    pub text: String,
+    pub checked: bool,
+}
+
+#[derive(Clone, Data, Lens, Serialize, Deserialize)]
+pub struct PointerStateItem {
+    pub text: String,
+    pub resolved: String,
+    pub checked: bool,
 }
 
 impl AppState {

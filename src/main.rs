@@ -10,8 +10,13 @@ unused_extern_crates
 
 #![windows_subsystem = "windows"]
 
+use std::fs;
+use std::fs::File;
+use std::io::{Error, Read};
+use bincode::deserialize;
 use crossbeam_channel::bounded;
 use druid::{AppLauncher, WindowDesc};
+use druid::im::Vector;
 use serde as _;
 
 mod data;
@@ -21,6 +26,7 @@ use data::AppState;
 mod view;
 
 use view::build_ui;
+use crate::data::SerializableParameters;
 use crate::delegate::Delegate;
 
 mod index;
@@ -39,25 +45,52 @@ pub fn main() {
     let launcher = AppLauncher::with_window(main_window);
     let sink = launcher.get_external_handle();
     let handle = search_thread(rx_search, tx_search.clone(), tx_res, sink);
+    let parameters = load_from_json();
+    let state = AppState {
+        query: "".to_string(),
+        exact: false,
+        items: Default::default(),
+        view: "".to_string(),
+        pointers: Vector::from(parameters.pointer_state),
+        query_time: "".to_string(),
+        count: "0".to_string(),
+        size: "0".to_string(),
+        prob: "".to_string(),
+        settings: false,
+        properties: Default::default(),
+        view_column: parameters.view_column,
+        tx: tx_search.clone(),
+        rx: rx_res,
+    };
+
+
     launcher
         .delegate(Delegate {})
-        .launch(AppState {
-            query: "".to_string(),
-            exact: false,
-            items: Default::default(),
-            view: "".to_string(),
-            pointers: Default::default(),
-            query_time: "".to_string(),
-            count: "0".to_string(),
-            size: "0".to_string(),
-            prob: "".to_string(),
-            settings: false,
-            properties: Default::default(),
-            view_column: "".to_string(),
-            tx: tx_search.clone(),
-            rx: rx_res,
-        })
+        .launch(state)
         .expect("Failed to launch application");
     tx_search.send(CommandMessage::Quit).unwrap();
     handle.join().unwrap();
+}
+
+
+pub fn load_from_json() -> SerializableParameters {
+    let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+    let path = format!("{}/.melt_state.dat", buf);
+    let file = get_file_as_byte_vec(&path);
+    match file {
+        Ok(file) => {
+            deserialize(&file).unwrap()
+        }
+        Err(_) => {
+            SerializableParameters{ view_column: "".to_string(), pointer_state: vec![] }
+        }
+    }
+}
+fn get_file_as_byte_vec(filename: &String) -> Result<Vec<u8>, Error> {
+    let mut f = File::open(&filename)?;
+    let metadata = fs::metadata(&filename)?;
+    let mut buffer = vec![0; metadata.len() as usize];
+    f.read(&mut buffer)?;
+
+    Ok(buffer)
 }

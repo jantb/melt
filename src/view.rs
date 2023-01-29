@@ -86,6 +86,12 @@ pub fn build_ui() -> impl Widget<AppState> {
                 ctx.submit_command(CHANGE_SETTINGS.with(!data.settings));
                 ctx.request_update();
             }).align_left())
+        .with_child(
+            Button::new("Clear settings").on_click(|ctx, data: &mut AppState, _env| {
+                data.pointers.clear();
+                data.view_column = "".to_string();
+                ctx.request_update();
+            }).align_left())
         .with_flex_child(Scroll::new(List::new(|| {
             Flex::row()
                 .with_child(Checkbox::new("").lens(PointerState::checked)
