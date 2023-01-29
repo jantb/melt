@@ -9,7 +9,7 @@ use crate::data::{AppState, Item, PointerState};
 use crate::index::{CommandMessage, ResultMessage};
 
 pub const SET_VIEW: Selector<String> = Selector::new("set_view");
-pub const SEARCH: Selector<String> = Selector::new("search");
+pub const SEARCH: Selector<(String, bool)> = Selector::new("search");
 pub const CHECK_CLICKED_FOR_POINTER: Selector<PointerState> = Selector::new("clicked");
 pub const SET_VIEW_COLUMN: Selector<String> = Selector::new("set_view_column");
 pub const CHANGE_SETTINGS: Selector<bool> = Selector::new("change_setting");
@@ -51,10 +51,10 @@ impl AppDelegate<AppState> for Delegate {
         } else if let Some(_) = cmd.get(CLEAR_DB) {
             data.tx.send(CommandMessage::Clear).unwrap();
             Handled::Yes
-        } else if let Some(query) = cmd.get(SEARCH) {
+        } else if let Some(q) = cmd.get(SEARCH) {
             data.items.clear();
-            if query.is_empty() { return Handled::Yes; };
-            data.tx.send(CommandMessage::Filter(query.to_string())).unwrap();
+            if q.0.is_empty() { return Handled::Yes; };
+            data.tx.send(CommandMessage::Filter(q.0.to_string(), q.1)).unwrap();
             match data.rx.recv().unwrap() {
                 ResultMessage::Messages(m,s) => {
                     data.query_time = s;

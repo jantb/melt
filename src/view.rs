@@ -1,5 +1,6 @@
 use std::sync::atomic::Ordering;
-use druid::{widget::TextBox, widget::{Button, Flex, Label, List}, Widget, WidgetExt, FontDescriptor, FontFamily, FontWeight, EventCtx, Event, Env};
+
+use druid::{Env, Event, EventCtx, FontDescriptor, FontFamily, FontWeight, widget::{Button, Flex, Label, List}, Widget, widget::TextBox, WidgetExt};
 use druid::widget::{Checkbox, Container, Controller, Either, LineBreaking, Scroll, Split};
 
 use crate::data::*;
@@ -15,6 +16,10 @@ fn new_search_textbox() -> impl Widget<AppState> {
 
     Flex::row()
         .with_flex_child(new_search_textbox, 1.)
+        .with_child(Checkbox::new("Exact").lens(AppState::exact)).padding(5.).on_click(|ctx, data: &mut AppState, _env| {
+        ctx.submit_command(SEARCH.with((data.query.to_string(), data.exact)));
+        ctx.request_update()
+    })
         .padding(8.0)
 }
 
@@ -28,7 +33,7 @@ impl<W: Widget<AppState>> Controller<AppState, W> for TakeFocus {
         if let Event::KeyUp(_) = event {
             let prob = (0.6 as f32).powi(trigram(data.query.as_str()).len() as i32);
             data.prob = convert_to_ratio(prob as f64, 1., GLOBAL_COUNT.load(Ordering::SeqCst));
-            ctx.submit_command(SEARCH.with(data.query.to_string()));
+            ctx.submit_command(SEARCH.with((data.query.to_string(), data.exact)));
         }
 
         child.event(ctx, event, data, env)
@@ -39,7 +44,7 @@ fn convert_to_ratio(probability: f64, total: f64, index_size: usize) -> String {
     if probability == 0.0 {
         return "Total cannot be zero".to_string();
     }
-    format!("P index hits {}", index_size /(total / probability) as usize)
+    format!("P index hits {}", index_size / (total / probability) as usize)
 }
 
 fn documents() -> impl Widget<Item> {

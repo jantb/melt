@@ -43,6 +43,7 @@ pub fn main() {
         .delegate(Delegate {})
         .launch(AppState {
             query: "".to_string(),
+            exact: false,
             items: Default::default(),
             view: "".to_string(),
             pointers: Default::default(),

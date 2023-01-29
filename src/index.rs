@@ -1,10 +1,11 @@
+use std::{fs, thread};
+use std::fs::File;
 use std::io::{BufRead, BufReader, Error, Read};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::{fs, thread};
-use std::fs::File;
 use std::thread::{JoinHandle, sleep};
 use std::time::{Duration, Instant};
+
 use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
 use druid::ExtEventSink;
@@ -12,6 +13,7 @@ use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
 use rayon::prelude::*;
 use rocksdb::{BlockBasedOptions, Cache, DB, DBCompactionStyle, DBCompressionType, DBWithThreadMode, Options, SingleThreaded};
+
 use crate::data::AppState;
 
 pub static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -79,15 +81,14 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
             match rx_search.recv() {
                 Ok(cm) => {
                     match cm {
-                        CommandMessage::Filter(query) => {
+                        CommandMessage::Filter(query, exact) => {
                             let start = Instant::now();
-                            let mut keys: Vec<Vec<u8>> = index.search(query.as_str()).iter().map(|x| x.to_le_bytes().to_vec()).collect();
+                            let keys: Vec<Vec<u8>> = index.search(query.as_str(), exact).iter().map(|x| x.to_le_bytes().to_vec()).collect();
                             let duration_index = start.elapsed();
                             let string = query.to_lowercase();
                             let lowercase = string.as_str();
                             let index_hits = keys.len();
 
-                            keys.truncate(2500);
                             let start = Instant::now();
                             let mut result = vec![];
                             let mut processed = 0;
@@ -97,11 +98,13 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                                     .map(|result| result.as_ref().ok())
                                     .map(|opt| opt.map(|vec| String::from_utf8(vec.clone().unwrap()).unwrap()).unwrap())
                                     .filter(|s| {
-                                        s.to_lowercase().contains(lowercase)
+                                        if exact { s.to_lowercase().contains(lowercase) } else {
+                                            query.to_lowercase().split(" ").all(|q| s.to_lowercase().contains(q))
+                                        }
                                     })
                                     .collect::<Vec<String>>());
                             });
-                            if processed > index_hits{
+                            if processed > index_hits {
                                 processed = index_hits;
                             }
                             let duration_db = start.elapsed();
@@ -178,7 +181,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
 
 #[derive(Clone)]
 pub enum CommandMessage {
-    Filter(String),
+    Filter(String, bool),
     Clear,
     Quit,
     InsertJson(String),
