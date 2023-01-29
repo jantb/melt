@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::time::Instant;
 use druid::{AppDelegate, Command, DelegateCtx, Env, Handled, Selector, Target};
 use druid::im::Vector;
 use jsonptr::{Pointer, ResolveMut};
@@ -55,12 +54,10 @@ impl AppDelegate<AppState> for Delegate {
         } else if let Some(query) = cmd.get(SEARCH) {
             data.items.clear();
             if query.is_empty() { return Handled::Yes; };
-            let start = Instant::now();
             data.tx.send(CommandMessage::Filter(query.to_string())).unwrap();
             match data.rx.recv().unwrap() {
-                ResultMessage::Messages(m) => {
-                    let duration = start.elapsed();
-                    data.query_time = format!("Query took {}ms with {} results", duration.as_millis().to_string(), m.len());
+                ResultMessage::Messages(m,s) => {
+                    data.query_time = s;
                     m.iter()
                         .for_each(|m| data.items.push_front(Item::new(m.as_str())))
                 }

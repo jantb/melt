@@ -1,9 +1,10 @@
+use std::sync::atomic::Ordering;
 use druid::{widget::TextBox, widget::{Button, Flex, Label, List}, Widget, WidgetExt, FontDescriptor, FontFamily, FontWeight, EventCtx, Event, Env};
-use druid::keyboard_types::Key::Enter;
 use druid::widget::{Checkbox, Container, Controller, Either, LineBreaking, Scroll, Split};
 
 use crate::data::*;
 use crate::delegate::{CHANGE_SETTINGS, CHECK_CLICKED_FOR_POINTER, CLEAR_DB, SEARCH, SET_VIEW_COLUMN};
+use crate::index::GLOBAL_COUNT;
 
 fn new_search_textbox() -> impl Widget<AppState> {
     let new_search_textbox = TextBox::new()
@@ -24,25 +25,21 @@ impl<W: Widget<AppState>> Controller<AppState, W> for TakeFocus {
         if let Event::WindowConnected = event {
             ctx.request_focus();
         }
-        if let Event::KeyUp(key) = event {
+        if let Event::KeyUp(_) = event {
             let prob = (0.6 as f32).powi(trigram(data.query.as_str()).len() as i32);
-            data.prob = convert_to_ratio(prob as f64, 1.);
-            if key.key == Enter {
-                if prob < 0.1 {
-                    ctx.submit_command(SEARCH.with(data.query.to_string()));
-                }
-            }
+            data.prob = convert_to_ratio(prob as f64, 1., GLOBAL_COUNT.load(Ordering::SeqCst));
+            ctx.submit_command(SEARCH.with(data.query.to_string()));
         }
 
         child.event(ctx, event, data, env)
     }
 }
 
-fn convert_to_ratio(probability: f64, total: f64) -> String {
+fn convert_to_ratio(probability: f64, total: f64, index_size: usize) -> String {
     if probability == 0.0 {
         return "Total cannot be zero".to_string();
     }
-    format!("1 in {}", (total / probability) as usize)
+    format!("P index hits {}", index_size /(total / probability) as usize)
 }
 
 fn documents() -> impl Widget<Item> {
@@ -65,10 +62,10 @@ pub fn build_ui() -> impl Widget<AppState> {
             ctx.submit_command(CLEAR_DB);
             ctx.request_update()
         }).align_right()))
-        .with_child(Label::raw().lens(AppState::query_time).align_right())
-        .with_child(Label::raw().lens(AppState::count).align_right())
-        .with_child(Label::raw().lens(AppState::size).align_right())
-        .with_child(Label::raw().lens(AppState::prob).align_right())
+        .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::query_time).align_left())
+        .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::count).align_left())
+        .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::size).align_left())
+        .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::prob).align_left())
         .with_child(new_search_textbox())
         .with_flex_child(Scroll::new(items).vertical(), 1.);
 
@@ -96,19 +93,19 @@ pub fn build_ui() -> impl Widget<AppState> {
                 .with_child(Label::new(|item: &PointerState, _env: &_| format!("{}", item.text))
                 )
         }))
-            .vertical()
-            .lens(AppState::pointers).align_left(),1.)
+                             .vertical()
+                             .lens(AppState::pointers).align_left(), 1.)
         .with_child(Label::new("Select view tag:").padding(8.0).align_left())
         .with_flex_child(Scroll::new(List::new(|| {
             Label::new(|item: &PointerState, _env: &_| format!("{}", item.text)).on_click(|ctx, item, _env| {
                 ctx.submit_command(SET_VIEW_COLUMN.with(item.text.to_string()));
             })
         }))
-            .vertical()
-            .lens(AppState::pointers).align_left(),1.);
+                             .vertical()
+                             .lens(AppState::pointers).align_left(), 1.);
 
     let either = Either::new(
-        |data:&AppState, _env| data.settings,
+        |data: &AppState, _env| data.settings,
         flex_settings,
         container,
     );

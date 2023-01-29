@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fs, thread};
 use std::fs::File;
 use std::thread::{JoinHandle, sleep};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
 use druid::ExtEventSink;
@@ -36,7 +36,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
         opts.optimize_for_point_lookup(10);
         let conn: DBWithThreadMode<SingleThreaded> = DBWithThreadMode::open_cf(&opts, path, &["default"]).unwrap();
 
-       let mut index = load_from_json();
+        let mut index = load_from_json();
         GLOBAL_COUNT.store(index.get_size(), Ordering::SeqCst);
         GLOBAL_SIZE.store(index.get_size_bytes() / 1_000_000, Ordering::SeqCst);
 
@@ -45,18 +45,31 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                 Ok(cm) => {
                     match cm {
                         CommandMessage::Filter(query) => {
-                            let keys: Vec<Vec<u8>> = index.search(query.as_str()).iter().map(|x| x.to_le_bytes().to_vec()).collect();
-
+                            let start = Instant::now();
+                            let mut keys: Vec<Vec<u8>> = index.search(query.as_str()).iter().map(|x| x.to_le_bytes().to_vec()).collect();
+                            let duration_index = start.elapsed();
                             let string = query.to_lowercase();
                             let lowercase = string.as_str();
-                            let result: Vec<String> = conn.multi_get(keys).par_iter()
-                                .map(|result| result.as_ref().ok())
-                                .map(|opt| opt.map(|vec| String::from_utf8(vec.clone().unwrap()).unwrap()).unwrap())
-                                .filter(|s| {
-                                    s.to_lowercase().contains(lowercase)
-                                })
-                                .collect();
-                            tx_res.send(ResultMessage::Messages(result)).unwrap();
+                            let index_hits = keys.len();
+
+                            keys.truncate(2500);
+                            let start = Instant::now();
+                            let mut result = vec![];
+                            let mut processed = 0;
+                            keys.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < 50).for_each(|v| {
+                                processed += 100;
+                                result.extend(conn.multi_get(v).par_iter()
+                                    .map(|result| result.as_ref().ok())
+                                    .map(|opt| opt.map(|vec| String::from_utf8(vec.clone().unwrap()).unwrap()).unwrap())
+                                    .filter(|s| {
+                                        s.to_lowercase().contains(lowercase)
+                                    })
+                                    .collect::<Vec<String>>());
+                            });
+
+                            let duration_db = start.elapsed();
+                            let res_size = result.len();
+                            tx_res.send(ResultMessage::Messages(result, format!("Index        {:?}\nIndex hits   {:?}\nRetrieve     {:?}\nProcessed    {:?}\nResults      {}", duration_index, index_hits, duration_db, processed, res_size))).unwrap();
                         }
                         CommandMessage::Quit => {
                             write_index_to_disk(&index);
@@ -67,7 +80,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             let key = index.add(&cm);
                             conn.put(key.to_le_bytes(), cm).unwrap();
                             GLOBAL_COUNT.store(1 + key, Ordering::SeqCst);
-                            if key % 10000 == 0 {
+                            if key % 100000 == 0 {
                                 GLOBAL_SIZE.store(index.get_size_bytes() / 1_000_000, Ordering::SeqCst);
                             };
                         }
@@ -102,8 +115,8 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
         loop {
             sleep(Duration::from_millis(100));
             sink1.add_idle_callback(move |data: &mut AppState| {
-                data.count = format!("{} documents", GLOBAL_COUNT.load(Ordering::SeqCst).to_string());
-                data.size = format!("{} mb index", GLOBAL_SIZE.load(Ordering::SeqCst).to_string());
+                data.count = format!("Documents    {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_string());
+                data.size = format!("Index size   {}", GLOBAL_SIZE.load(Ordering::SeqCst).to_string());
             });
         }
     });
@@ -135,7 +148,7 @@ pub enum CommandMessage {
 }
 
 pub enum ResultMessage {
-    Messages(Vec<String>),
+    Messages(Vec<String>, String),
 }
 
 pub fn load_from_json() -> SearchIndex {
