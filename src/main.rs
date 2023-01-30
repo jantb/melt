@@ -50,6 +50,7 @@ pub fn main() {
     let state = AppState {
         query: "".to_string(),
         timelimit: 50.0,
+        viewlimit: 500.0,
         not_query: "".to_string(),
         exact: false,
         items: Default::default(),

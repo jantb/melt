@@ -90,13 +90,21 @@ pub fn build_ui() -> impl Widget<AppState> {
         .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::size).align_left())
         .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::prob).align_left())
         .with_child(Label::dynamic(|value: &AppState, _| {
-            format!("Timelimit: {:?} ms", value.timelimit as u64)
+            format!("Time limit   {:?} ms", value.timelimit as u64)
         }).with_font(FontDescriptor::new(FontFamily::MONOSPACE)).align_left())
         .with_child(Slider::new()
             .with_range(10.0, 5000.0)
             .with_step(1.0)
             .lens(AppState::timelimit)
-            .align_left().expand_width())
+            .align_left())
+        .with_child(Label::dynamic(|value: &AppState, _| {
+            format!("View limit  {:?}", value.viewlimit as u64)
+        }).with_font(FontDescriptor::new(FontFamily::MONOSPACE)).align_left())
+        .with_child(Slider::new()
+            .with_range(100.0, 50000.0)
+            .with_step(1.0)
+            .lens(AppState::viewlimit)
+            .align_left())
         .with_child(new_search_textbox())
         .with_flex_child(Scroll::new(items).vertical(), 1.);
 

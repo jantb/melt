@@ -17,6 +17,7 @@ use crate::index::{CommandMessage, ResultMessage};
 pub struct AppState {
     pub query: String,
     pub timelimit: f64,
+    pub viewlimit: f64,
     pub not_query: String,
     pub exact: bool,
     pub items: Vector<Item>,

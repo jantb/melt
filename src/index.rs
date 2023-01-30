@@ -94,7 +94,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             negative_keys.retain(|x| set.contains(x));
                             let neg_set: HashSet<usize> = negative_keys.iter().cloned().collect();
 
-                            let keys: Vec<Vec<u8>> = positive_keys.iter().map(|x| x.to_le_bytes().to_vec()).collect();
+                            let mut keys: Vec<Vec<u8>> = positive_keys.iter().map(|x| x.to_le_bytes().to_vec()).collect();
                             let string = query.to_lowercase();
                             let lowercase = string.as_str();
                             let index_hits = keys.len();
@@ -102,6 +102,9 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             let start = Instant::now();
                             let mut result = vec![];
                             let mut processed = 0;
+
+                            keys.reverse();
+
                             keys.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < time as u128).for_each(|v| {
                                 processed += 100;
                                 result.extend(conn.multi_get(v).par_iter().enumerate()

@@ -61,7 +61,7 @@ impl AppDelegate<AppState> for Delegate {
             match data.rx.recv().unwrap() {
                 ResultMessage::Messages(m,s) => {
                     data.query_time = s;
-                    m.iter()
+                    m.iter().take(data.viewlimit as usize)
                         .for_each(|m| data.items.push_front(Item::new(m.as_str())))
                 }
             }
