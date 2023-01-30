@@ -131,7 +131,7 @@ fn resolve_pointer(text: &str, ps: &str) -> String {
         Err(_) => { &Value::Null }
     };
     if string.is_string() {return string.as_str().unwrap().to_string() }
-    if string.is_null() {
+    if !string.is_null() {
         return string.to_string();
     }
     ps.to_string()
