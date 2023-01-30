@@ -57,12 +57,12 @@ impl AppDelegate<AppState> for Delegate {
         } else if let Some(q) = cmd.get(SEARCH) {
             data.items.clear();
             if q.0.0.is_empty() { return Handled::Yes; };
-            data.tx.send(CommandMessage::Filter(q.0.0.to_string(),q.0.1.to_string(), q.1, data.timelimit as u64)).unwrap();
+            data.tx.send(CommandMessage::Filter(q.0.0.to_string(),q.0.1.to_string(), q.1, data.timelimit as u64, data.viewlimit as usize)).unwrap();
             match data.rx.recv().unwrap() {
                 ResultMessage::Messages(m,s) => {
                     data.query_time = s;
                     m.iter().take(data.viewlimit as usize)
-                        .for_each(|m| data.items.push_front(Item::new(m.as_str())))
+                        .for_each(|m| data.items.push_back(Item::new(m.as_str())))
                 }
             }
 

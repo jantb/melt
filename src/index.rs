@@ -4,7 +4,6 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Error, Read};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::thread::{JoinHandle, sleep};
 use std::time::{Duration, Instant};
 
 use bincode::deserialize;
@@ -14,7 +13,6 @@ use human_bytes::human_bytes;
 use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
 use num_format::{Locale, ToFormattedString};
-use rayon::prelude::*;
 use rocksdb::{BlockBasedOptions, Cache, DB, DBCompactionStyle, DBCompressionType, DBWithThreadMode, Options, SingleThreaded};
 
 use crate::data::AppState;
@@ -26,13 +24,13 @@ pub static GLOBAL_DATA_SIZE: AtomicU64 = AtomicU64::new(0);
 pub fn search_thread(
     rx_search: Receiver<CommandMessage>,
     tx_search: Sender<CommandMessage>, tx_res: Sender<ResultMessage>,
-    sink: ExtEventSink) -> JoinHandle<i32> {
+    sink: ExtEventSink) -> tokio::task::JoinHandle<i32> {
     socket_listener(tx_search, sink.clone());
     index_tread(rx_search, tx_res)
 }
 
-fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>) -> JoinHandle<i32> {
-    thread::spawn(move || {
+fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>) -> tokio::task::JoinHandle<i32> {
+    tokio::spawn(async move {
         let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
         let path = format!("{}/.melt.db", buf);
 
@@ -85,7 +83,8 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
             match rx_search.recv() {
                 Ok(cm) => {
                     match cm {
-                        CommandMessage::Filter(query, neg_query, exact, time) => {
+                        CommandMessage::Filter(query, neg_query, exact, time, limit) => {
+
                             let start = Instant::now();
                             let mut positive_keys = index.search(query.as_str(), exact);
                             let mut negative_keys = index.search(neg_query.as_str(), exact);
@@ -105,13 +104,13 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             let index_hits = keys.len();
 
                             let start = Instant::now();
-                            let mut result = vec![];
                             let mut processed = 0;
 
-
+                            let mut result = vec![];
                             keys.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < time as u128).for_each(|v| {
+                                if result.len()>limit {return  }
                                 processed += 100;
-                                result.extend(conn.multi_get(v).par_iter().enumerate()
+                                result.extend(conn.multi_get(v).iter().enumerate()
                                     .map(|(v_i, result)| (v_i, result.as_ref().ok()))
                                     .map(|v_i_opt| (v_i_opt.0, v_i_opt.1.map(|vec| String::from_utf8(vec.clone().unwrap()).unwrap()).unwrap()))
                                     .filter(|s| {
@@ -184,14 +183,14 @@ fn write_index_to_disk(index: &SearchIndex) {
 
 fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
     let sink1 = sink.clone();
-    thread::spawn(move || {
+    tokio::spawn(async move {
         loop {
-            sleep(Duration::from_millis(100));
+            tokio::time::sleep(Duration::from_millis(100)).await;
             sink1.add_idle_callback(move |data: &mut AppState| {
                 data.count = format!("Documents    {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
                 data.size = format!("Index size   {}", GLOBAL_SIZE.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
                 data.indexed_data_in_bytes = GLOBAL_DATA_SIZE.load(Ordering::SeqCst);
-                data.indexed_data_in_bytes_string =format!("Data size    {}", human_bytes(GLOBAL_DATA_SIZE.load(Ordering::SeqCst) as f64));
+                data.indexed_data_in_bytes_string = format!("Data size    {}", human_bytes(GLOBAL_DATA_SIZE.load(Ordering::SeqCst) as f64));
             });
         }
     });
@@ -216,7 +215,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
 
 #[derive(Clone)]
 pub enum CommandMessage {
-    Filter(String, String, bool, u64),
+    Filter(String, String, bool, u64, usize),
     Clear,
     Quit,
     InsertJson(String),
