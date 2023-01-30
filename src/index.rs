@@ -3,13 +3,14 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Error, Read};
 use std::net::TcpListener;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::thread::{JoinHandle, sleep};
 use std::time::{Duration, Instant};
 
 use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
 use druid::ExtEventSink;
+use human_bytes::human_bytes;
 use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
 use num_format::{Locale, ToFormattedString};
@@ -20,6 +21,7 @@ use crate::data::AppState;
 
 pub static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_SIZE: AtomicUsize = AtomicUsize::new(0);
+pub static GLOBAL_DATA_SIZE: AtomicU64 = AtomicU64::new(0);
 
 pub fn search_thread(
     rx_search: Receiver<CommandMessage>,
@@ -147,7 +149,8 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                         }
                         CommandMessage::InsertJson(cm) => {
                             let key = index.add(&cm);
-                            conn.put(key.to_le_bytes(), cm).unwrap();
+                            conn.put(key.to_le_bytes(), &cm).unwrap();
+                            GLOBAL_DATA_SIZE.fetch_add(cm.as_bytes().len() as u64, Ordering::SeqCst);
                             GLOBAL_COUNT.store(1 + key, Ordering::SeqCst);
                             if key % 100000 == 0 {
                                 GLOBAL_SIZE.store(index.get_size_bytes() / 1_000_000, Ordering::SeqCst);
@@ -157,6 +160,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             index.clear();
                             GLOBAL_SIZE.store(0, Ordering::SeqCst);
                             GLOBAL_COUNT.store(0, Ordering::SeqCst);
+                            GLOBAL_DATA_SIZE.store(0, Ordering::SeqCst);
                             let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
                             let path = format!("{}/.melt.db", buf);
                             let _ = DB::destroy(&Options::default(), path);
@@ -186,6 +190,8 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
             sink1.add_idle_callback(move |data: &mut AppState| {
                 data.count = format!("Documents    {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
                 data.size = format!("Index size   {}", GLOBAL_SIZE.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
+                data.indexed_data_in_bytes = GLOBAL_DATA_SIZE.load(Ordering::SeqCst);
+                data.indexed_data_in_bytes_string =format!("Data size    {}", human_bytes(GLOBAL_DATA_SIZE.load(Ordering::SeqCst) as f64));
             });
         }
     });

@@ -13,6 +13,7 @@ unused_extern_crates
 use std::fs;
 use std::fs::File;
 use std::io::{Error, Read};
+use std::sync::atomic::Ordering::SeqCst;
 
 use bincode::deserialize;
 use crossbeam_channel::bounded;
@@ -25,7 +26,7 @@ use view::build_ui;
 
 use crate::data::SerializableParameters;
 use crate::delegate::Delegate;
-use crate::index::{CommandMessage, search_thread};
+use crate::index::{CommandMessage, GLOBAL_DATA_SIZE, search_thread};
 
 mod data;
 
@@ -60,6 +61,8 @@ pub fn main() {
         count: "0".to_string(),
         size: "0".to_string(),
         prob: "".to_string(),
+        indexed_data_in_bytes: parameters.indexed_data_in_bytes,
+        indexed_data_in_bytes_string: "".to_string(),
         settings: false,
         properties: Default::default(),
         view_column: parameters.view_column,
@@ -83,13 +86,16 @@ pub fn load_from_json() -> SerializableParameters {
     let file = get_file_as_byte_vec(&path);
     match file {
         Ok(file) => {
-            deserialize(&file).unwrap()
+            let parameters: SerializableParameters = deserialize(&file).unwrap_or(SerializableParameters::default());
+            GLOBAL_DATA_SIZE.store(parameters.indexed_data_in_bytes, SeqCst);
+            parameters
         }
         Err(_) => {
-            SerializableParameters{ view_column: "".to_string(), pointer_state: vec![] }
+            SerializableParameters::default()
         }
     }
 }
+
 fn get_file_as_byte_vec(filename: &String) -> Result<Vec<u8>, Error> {
     let mut f = File::open(&filename)?;
     let metadata = fs::metadata(&filename)?;

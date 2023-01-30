@@ -88,6 +88,7 @@ pub fn build_ui() -> impl Widget<AppState> {
         .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::query_time).align_left())
         .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::count).align_left())
         .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::size).align_left())
+        .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::indexed_data_in_bytes_string).align_left())
         .with_child(Label::raw().with_font(FontDescriptor::new(FontFamily::MONOSPACE)).lens(AppState::prob).align_left())
         .with_child(Label::dynamic(|value: &AppState, _| {
             format!("Time limit   {:?} ms", value.timelimit as u64)

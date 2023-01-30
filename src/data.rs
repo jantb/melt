@@ -28,6 +28,9 @@ pub struct AppState {
     pub size: String,
     pub prob: String,
     #[data(ignore)]
+    pub indexed_data_in_bytes: u64,
+    pub indexed_data_in_bytes_string: String,
+    #[data(ignore)]
     pub settings: bool,
     pub properties: Vector<String>,
     pub view_column: String,
@@ -50,6 +53,7 @@ impl Drop for AppState {
 impl AppState {
     fn get_serializable_parameters(&self) -> SerializableParameters {
         SerializableParameters { view_column: self.view_column.to_string(),
+            indexed_data_in_bytes : self.indexed_data_in_bytes,
             pointer_state: self.pointers.iter().map(|p| p.clone()).collect::<Vec<PointerState>>()
         }
     }
@@ -59,6 +63,13 @@ impl AppState {
 pub struct SerializableParameters {
     pub view_column: String,
     pub pointer_state: Vec<PointerState>,
+    pub indexed_data_in_bytes: u64,
+}
+
+impl Default for SerializableParameters {
+    fn default() -> Self {
+        SerializableParameters { view_column: "".to_string(), indexed_data_in_bytes: 0, pointer_state: vec![] }
+    }
 }
 
 #[derive(Clone, Data, Lens, Serialize, Deserialize)]
