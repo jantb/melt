@@ -85,16 +85,19 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                     match cm {
                         CommandMessage::Filter(query, neg_query, exact, time) => {
                             let start = Instant::now();
-                            let positive_keys = index.search(query.as_str(), exact);
+                            let mut positive_keys = index.search(query.as_str(), exact);
                             let mut negative_keys = index.search(neg_query.as_str(), exact);
-
+                            positive_keys.reverse();
+                            if positive_keys.len() > 100_000 {
+                                positive_keys.truncate(100_000)
+                            }
 
                             let duration_index = start.elapsed();
                             let set: HashSet<usize> = positive_keys.iter().cloned().collect();
                             negative_keys.retain(|x| set.contains(x));
                             let neg_set: HashSet<usize> = negative_keys.iter().cloned().collect();
 
-                            let mut keys: Vec<Vec<u8>> = positive_keys.iter().map(|x| x.to_le_bytes().to_vec()).collect();
+                            let keys: Vec<Vec<u8>> = positive_keys.iter().map(|x| x.to_le_bytes().to_vec()).collect();
                             let string = query.to_lowercase();
                             let lowercase = string.as_str();
                             let index_hits = keys.len();
@@ -103,7 +106,6 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             let mut result = vec![];
                             let mut processed = 0;
 
-                            keys.reverse();
 
                             keys.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < time as u128).for_each(|v| {
                                 processed += 100;
