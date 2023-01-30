@@ -9,7 +9,11 @@ use std::time::{Duration, Instant};
 use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
 use druid::ExtEventSink;
+use futures::{StreamExt, TryStreamExt};
 use human_bytes::human_bytes;
+use k8s_openapi::api::core::v1::Pod;
+use kube::{Api, Client};
+use kube::api::{ListParams, LogParams};
 use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
 use num_format::{Locale, ToFormattedString};
@@ -84,7 +88,6 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                 Ok(cm) => {
                     match cm {
                         CommandMessage::Filter(query, neg_query, exact, time, limit) => {
-
                             let start = Instant::now();
                             let mut positive_keys = index.search(query.as_str(), exact);
                             let mut negative_keys = index.search(neg_query.as_str(), exact);
@@ -108,7 +111,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
 
                             let mut result = vec![];
                             keys.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < time as u128).for_each(|v| {
-                                if result.len()>limit {return  }
+                                if result.len() > limit { return; }
                                 processed += 100;
                                 result.extend(conn.multi_get(v).iter().enumerate()
                                     .map(|(v_i, result)| (v_i, result.as_ref().ok()))
@@ -195,6 +198,8 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
         }
     });
 
+    tailing(tx_send.clone());
+
     let listener = TcpListener::bind("127.0.0.1:7999").unwrap();
 
 
@@ -210,6 +215,35 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
                 }
             });
         }
+    });
+}
+
+ fn tailing(sender: Sender<CommandMessage>) {
+    tokio::spawn(async move {
+        let client = match Client::try_default().await {
+            Ok(c) => { c }
+            Err(e) => {
+                println!("{}", e.to_string());
+                return;
+            }
+        };
+        let pods: Api<Pod> = Api::default_namespaced(client);
+        let pods_vec = pods.list(&ListParams::default()).await.unwrap().items;
+        pods_vec.into_iter().for_each(|p| {
+            let api = pods.clone();
+            let sender_clone = sender.clone();
+            tokio::spawn(async move {
+                let mut logs = api.log_stream(&(p.metadata.name.clone().unwrap()), &LogParams {
+                    follow: true,
+                    tail_lines: Some(1),
+                    ..LogParams::default()
+                })
+                    .await.unwrap().boxed();
+                while let Some(line) = logs.try_next().await.unwrap() {
+                    sender_clone.send(CommandMessage::InsertJson(String::from_utf8_lossy(&line).to_string())).unwrap();
+                }
+            });
+        });
     });
 }
 
