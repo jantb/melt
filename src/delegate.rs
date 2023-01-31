@@ -68,8 +68,7 @@ impl AppDelegate<AppState> for Delegate {
 
             Handled::Yes
         } else {
-            println!("cmd forwarded: {:?}", cmd);
-            Handled::No
+             Handled::No
         }
     }
 }

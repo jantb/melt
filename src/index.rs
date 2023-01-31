@@ -81,7 +81,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
         let conn: DBWithThreadMode<SingleThreaded> = DBWithThreadMode::open_cf(&opt, path, &["default"]).unwrap();
         let mut index = load_from_json();
         GLOBAL_COUNT.store(index.get_size(), Ordering::SeqCst);
-        GLOBAL_SIZE.store(index.get_size_bytes() / 1_000_000, Ordering::SeqCst);
+        GLOBAL_SIZE.store(index.get_size_bytes() , Ordering::SeqCst);
 
         loop {
             match rx_search.recv() {
@@ -91,52 +91,49 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             let start = Instant::now();
                             let mut positive_keys = index.search(query.as_str(), exact);
                             let mut negative_keys = index.search(neg_query.as_str(), exact);
-                            positive_keys.reverse();
-                            if positive_keys.len() > 100_000 {
-                                positive_keys.truncate(100_000)
-                            }
 
                             let duration_index = start.elapsed();
-                            let set: HashSet<usize> = positive_keys.iter().cloned().collect();
-                            negative_keys.retain(|x| set.contains(x));
-                            let neg_set: HashSet<usize> = negative_keys.iter().cloned().collect();
+                            let start = Instant::now();
 
-                            let keys: Vec<Vec<u8>> = positive_keys.iter().map(|x| x.to_le_bytes().to_vec()).collect();
+                            let set: HashSet<usize> = positive_keys.iter().cloned().collect();
+                            let set_neg: HashSet<usize> = negative_keys.iter().cloned().collect();
+                            negative_keys.retain(|x| set.contains(x));
+                            positive_keys.retain(|x| !set_neg.contains(x));
+
+                            positive_keys.reverse();
+                            negative_keys.reverse();
                             let string = query.to_lowercase();
                             let lowercase = string.as_str();
-                            let index_hits = keys.len();
 
-                            let start = Instant::now();
+                            let keys: Vec<Vec<u8>> = positive_keys.iter().map(|x| x.to_le_bytes().to_vec()).collect();
+                            let keys_neg: Vec<Vec<u8>> = negative_keys.iter().map(|x| x.to_le_bytes().to_vec()).collect();
+                            let index_hits = keys.len() + keys_neg.len();
+
+
                             let mut processed = 0;
-
-                            let mut result = vec![];
+                            let mut result: Vec<String> = vec![];
                             keys.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < time as u128).for_each(|v| {
                                 if result.len() > limit { return; }
                                 processed += 100;
-                                result.extend(conn.multi_get(v).iter().enumerate()
-                                    .map(|(v_i, result)| (v_i, result.as_ref().ok()))
-                                    .map(|v_i_opt| (v_i_opt.0, v_i_opt.1.map(|vec| String::from_utf8(vec.clone().unwrap()).unwrap()).unwrap()))
-                                    .filter(|s| {
-                                        let vec = v[s.0].clone();
-                                        let usize = u64::from_le_bytes(vec[..].try_into().unwrap()) as usize;
-                                        if exact {
-                                            if neg_set.contains(&usize) {
-                                                if s.1.to_lowercase().contains(neg_query.to_lowercase().as_str()) {
-                                                    return false;
-                                                }
-                                            }
-                                            s.1.to_lowercase().contains(lowercase)
-                                        } else {
-                                            if neg_set.contains(&usize) {
-                                                if neg_query.to_lowercase().split(" ").any(|q| s.1.to_lowercase().contains(q)) {
-                                                    return false;
-                                                }
-                                            }
-                                            query.to_lowercase().split(" ").all(|q| s.1.to_lowercase().contains(q))
-                                        }
-                                    }).map(|s| s.1)
-                                    .collect::<Vec<String>>());
+                                let map = conn.multi_get(v).iter()
+                                    .map(|v_i_opt| {
+                                        let vec_u8 = v_i_opt.clone().unwrap().unwrap();
+                                        String::from_utf8_lossy(&vec_u8).to_string()
+                                    }).filter(|string| is_match(exact, lowercase, string)).collect::<Vec<String>>();
+                                result.extend(map);
                             });
+
+                            keys_neg.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < time as u128).for_each(|v| {
+                                if result.len() > limit { return; }
+                                processed += 100;
+                                let map = conn.multi_get(v).iter()
+                                    .map(|v_i_opt| {
+                                        let vec_u8 = v_i_opt.clone().unwrap().unwrap();
+                                        String::from_utf8_lossy(&vec_u8).to_string()
+                                    }).filter(|string| is_match(exact, lowercase, string)).collect::<Vec<String>>();
+                                result.extend(map);
+                            });
+
                             if processed > index_hits {
                                 processed = index_hits;
                             }
@@ -155,7 +152,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             GLOBAL_DATA_SIZE.fetch_add(cm.as_bytes().len() as u64, Ordering::SeqCst);
                             GLOBAL_COUNT.store(1 + key, Ordering::SeqCst);
                             if key % 100000 == 0 {
-                                GLOBAL_SIZE.store(index.get_size_bytes() / 1_000_000, Ordering::SeqCst);
+                                GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
                             };
                         }
                         CommandMessage::Clear => {
@@ -175,6 +172,14 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
     })
 }
 
+fn is_match(exact: bool, lowercase: &str, s: &String) -> bool {
+    if exact {
+        s.to_lowercase().contains(lowercase)
+    } else {
+        lowercase.split(" ").all(|q| s.to_lowercase().contains(q))
+    }
+}
+
 fn write_index_to_disk(index: &SearchIndex) {
     let serialized: Vec<u8> = bincode::serialize(&index).unwrap();
     let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
@@ -191,14 +196,14 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
             tokio::time::sleep(Duration::from_millis(100)).await;
             sink1.add_idle_callback(move |data: &mut AppState| {
                 data.count = format!("Documents    {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
-                data.size = format!("Index size   {}", GLOBAL_SIZE.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
+                data.size = format!("Index size   {}", human_bytes(GLOBAL_SIZE.load(Ordering::SeqCst) as f64));
                 data.indexed_data_in_bytes = GLOBAL_DATA_SIZE.load(Ordering::SeqCst);
                 data.indexed_data_in_bytes_string = format!("Data size    {}", human_bytes(GLOBAL_DATA_SIZE.load(Ordering::SeqCst) as f64));
             });
         }
     });
 
-  //  tailing(tx_send.clone());
+    //  tailing(tx_send.clone());
 
     let listener = TcpListener::bind("127.0.0.1:7999").unwrap();
 
