@@ -218,7 +218,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
     });
 }
 
- fn tailing(sender: Sender<CommandMessage>) {
+fn tailing(sender: Sender<CommandMessage>) {
     tokio::spawn(async move {
         let client = match Client::try_default().await {
             Ok(c) => { c }
@@ -233,6 +233,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
             let api = pods.clone();
             let sender_clone = sender.clone();
             tokio::spawn(async move {
+                println!("{}", &(p.metadata.name.clone().unwrap().to_string()));
                 let mut logs = api.log_stream(&(p.metadata.name.clone().unwrap()), &LogParams {
                     follow: true,
                     tail_lines: Some(1),

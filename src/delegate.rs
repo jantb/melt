@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 
 use druid::{AppDelegate, Command, DelegateCtx, Env, Handled, Selector, Target};
-use druid::im::Vector;
 use jsonptr::{Pointer, ResolveMut};
 use serde_json::Value;
 
@@ -9,7 +8,7 @@ use crate::data::{AppState, Item, PointerState};
 use crate::index::{CommandMessage, ResultMessage};
 
 pub const SET_VIEW: Selector<String> = Selector::new("set_view");
-pub const SEARCH: Selector<((String,String), bool)> = Selector::new("search");
+pub const SEARCH: Selector<((String, String), bool)> = Selector::new("search");
 pub const CHECK_CLICKED_FOR_POINTER: Selector<PointerState> = Selector::new("clicked");
 pub const SET_VIEW_COLUMN: Selector<String> = Selector::new("set_view_column");
 pub const CHANGE_SETTINGS: Selector<bool> = Selector::new("change_setting");
@@ -57,12 +56,11 @@ impl AppDelegate<AppState> for Delegate {
         } else if let Some(q) = cmd.get(SEARCH) {
             data.items.clear();
             if q.0.0.is_empty() { return Handled::Yes; };
-            data.tx.send(CommandMessage::Filter(q.0.0.to_string(),q.0.1.to_string(), q.1, data.timelimit as u64, data.viewlimit as usize)).unwrap();
+            data.tx.send(CommandMessage::Filter(q.0.0.to_string(), q.0.1.to_string(), q.1, data.timelimit as u64, data.viewlimit as usize)).unwrap();
             match data.rx.recv().unwrap() {
-                ResultMessage::Messages(m,s) => {
+                ResultMessage::Messages(m, s) => {
                     data.query_time = s;
-                    m.iter().take(data.viewlimit as usize)
-                        .for_each(|m| data.items.push_back(Item::new(m.as_str())))
+                    data.items = m.iter().take(data.viewlimit as usize).map(|m| Item::new(m.as_str())).collect()
                 }
             }
 
@@ -92,16 +90,11 @@ impl Delegate {
 
     fn sort_and_resolve(data: &mut AppState) {
         if !Self::resolve_pointers(data) {
-            let mut vec1 = vec![];
-            data.items.iter().for_each(|v| vec1.push(v.clone()));
-
-            vec1.sort_by(|left, right| {
+            data.items.sort_by(|left, right| {
                 right.pointers.first().unwrap_or(&"".to_string())
                     .cmp(left.pointers.first().unwrap_or(&"".to_string()))
             });
-            let mut sorted_vec: Vector<Item> = Vector::new();
-            vec1.iter().for_each(|v| sorted_vec.push_back(v.clone()));
-            data.items = sorted_vec;
+
             data.items.iter_mut().for_each(|item| {
                 item.view = item.pointers.join(" ")
             }
@@ -130,7 +123,7 @@ fn resolve_pointer(text: &str, ps: &str) -> String {
         Ok(v) => { v }
         Err(_) => { &Value::Null }
     };
-    if string.is_string() {return string.as_str().unwrap().to_string() }
+    if string.is_string() { return string.as_str().unwrap().to_string(); }
     if !string.is_null() {
         return string.to_string();
     }
