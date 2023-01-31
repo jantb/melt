@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use bincode::deserialize;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, SendError};
 use druid::ExtEventSink;
 //use futures::{StreamExt, TryStreamExt};
 use human_bytes::human_bytes;
@@ -216,7 +216,17 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
                 let reader = BufReader::new(stream.unwrap());
                 // Read lines from the socket
                 for line in reader.lines() {
-                    sender.send(CommandMessage::InsertJson(line.unwrap())).unwrap_or(());
+                    match line {
+                        Ok(s) => {
+                            match sender.send(CommandMessage::InsertJson(s)) {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    println!("{}", e)
+                                }
+                            };
+                        }
+                        Err(e) => {println!("{}", e)}
+                    }
                 }
             });
         }
