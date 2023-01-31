@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use bincode::deserialize;
-use crossbeam_channel::{Receiver, Sender, SendError};
+use crossbeam_channel::{Receiver, Sender};
 use druid::ExtEventSink;
 //use futures::{StreamExt, TryStreamExt};
 use human_bytes::human_bytes;
