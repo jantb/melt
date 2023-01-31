@@ -22,9 +22,9 @@ num_cpus = "1.14.0"
 num-format = "0.4.4"
 human_bytes = { version = "0.4", default-features = false }
 tokio = { version = "1.25.0", features = ["full"] }
-kube = { version = "0.78.0", features = ["runtime", "derive"] }
-k8s-openapi = { version = "0.17.0", features = ["v1_26"] }
-futures = "0.3.26"
+#kube = { version = "0.78.0", features = ["runtime", "derive"] }
+#k8s-openapi = { version = "0.17.0", features = ["v1_26"] }
+#futures = "0.3.26"
 
 
 [profile.release]

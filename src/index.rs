@@ -9,11 +9,11 @@ use std::time::{Duration, Instant};
 use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
 use druid::ExtEventSink;
-use futures::{StreamExt, TryStreamExt};
+//use futures::{StreamExt, TryStreamExt};
 use human_bytes::human_bytes;
-use k8s_openapi::api::core::v1::Pod;
-use kube::{Api, Client};
-use kube::api::{ListParams, LogParams};
+// use k8s_openapi::api::core::v1::Pod;
+// use kube::{Api, Client};
+// use kube::api::{ListParams, LogParams};
 use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
 use num_format::{Locale, ToFormattedString};
@@ -198,7 +198,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
         }
     });
 
-    tailing(tx_send.clone());
+  //  tailing(tx_send.clone());
 
     let listener = TcpListener::bind("127.0.0.1:7999").unwrap();
 
@@ -218,35 +218,35 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
     });
 }
 
-fn tailing(sender: Sender<CommandMessage>) {
-    tokio::spawn(async move {
-        let client = match Client::try_default().await {
-            Ok(c) => { c }
-            Err(e) => {
-                println!("{}", e.to_string());
-                return;
-            }
-        };
-        let pods: Api<Pod> = Api::default_namespaced(client);
-        let pods_vec = pods.list(&ListParams::default()).await.unwrap().items;
-        pods_vec.into_iter().for_each(|p| {
-            let api = pods.clone();
-            let sender_clone = sender.clone();
-            tokio::spawn(async move {
-                println!("{}", &(p.metadata.name.clone().unwrap().to_string()));
-                let mut logs = api.log_stream(&(p.metadata.name.clone().unwrap()), &LogParams {
-                    follow: true,
-                    tail_lines: Some(1),
-                    ..LogParams::default()
-                })
-                    .await.unwrap().boxed();
-                while let Some(line) = logs.try_next().await.unwrap() {
-                    sender_clone.send(CommandMessage::InsertJson(String::from_utf8_lossy(&line).to_string())).unwrap();
-                }
-            });
-        });
-    });
-}
+// fn tailing(sender: Sender<CommandMessage>) {
+//     tokio::spawn(async move {
+//         let client = match Client::try_default().await {
+//             Ok(c) => { c }
+//             Err(e) => {
+//                 println!("{}", e.to_string());
+//                 return;
+//             }
+//         };
+//         let pods: Api<Pod> = Api::default_namespaced(client);
+//         let pods_vec = pods.list(&ListParams::default()).await.unwrap().items;
+//         pods_vec.into_iter().for_each(|p| {
+//             let api = pods.clone();
+//             let sender_clone = sender.clone();
+//             tokio::spawn(async move {
+//                 println!("{}", &(p.metadata.name.clone().unwrap().to_string()));
+//                 let mut logs = api.log_stream(&(p.metadata.name.clone().unwrap()), &LogParams {
+//                     follow: true,
+//                     tail_lines: Some(1),
+//                     ..LogParams::default()
+//                 })
+//                     .await.unwrap().boxed();
+//                 while let Some(line) = logs.try_next().await.unwrap() {
+//                     sender_clone.send(CommandMessage::InsertJson(String::from_utf8_lossy(&line).to_string())).unwrap();
+//                 }
+//             });
+//         });
+//     });
+// }
 
 #[derive(Clone)]
 pub enum CommandMessage {
