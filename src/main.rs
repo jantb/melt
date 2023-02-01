@@ -40,17 +40,17 @@ pub fn main() -> () {
         .title("Melt listening on socket://localhost:7999 expected format is JSON Lines https://jsonlines.org")
         .window_size((1024.0, 768.0))
         .set_window_state(WindowState::Maximized);
-    let (tx_res, rx_res) = bounded(10);
     let (tx_search, rx_search) = bounded(10);
 
 
     let launcher = AppLauncher::with_window(main_window);
     let sink = launcher.get_external_handle();
-    let handle = search_thread(rx_search, tx_search.clone(), tx_res, sink);
+    let handle = search_thread(rx_search, tx_search.clone(),  sink);
     let parameters = load_from_json();
     let state = AppState {
         query: "".to_string(),
         timelimit: 50.0,
+        index_prob: 0.6,
         viewlimit: 500.0,
         not_query: "".to_string(),
         exact: false,
@@ -67,7 +67,6 @@ pub fn main() -> () {
         properties: Default::default(),
         view_column: parameters.view_column,
         tx: tx_search.clone(),
-        rx: rx_res,
     };
 
 

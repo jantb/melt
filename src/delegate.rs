@@ -4,8 +4,8 @@ use druid::{AppDelegate, Command, DelegateCtx, Env, Handled, Selector, Target};
 use jsonptr::{Pointer, ResolveMut};
 use serde_json::Value;
 
-use crate::data::{AppState, Item, PointerState};
-use crate::index::{CommandMessage, ResultMessage};
+use crate::data::{AppState, PointerState};
+use crate::index::CommandMessage;
 
 pub const SET_VIEW: Selector<String> = Selector::new("set_view");
 pub const SEARCH: Selector<((String, String), bool)> = Selector::new("search");
@@ -56,50 +56,10 @@ impl AppDelegate<AppState> for Delegate {
         } else if let Some(q) = cmd.get(SEARCH) {
             data.items.clear();
             if q.0.0.is_empty() { return Handled::Yes; };
-            data.tx.send(CommandMessage::Filter(q.0.0.to_string(), q.0.1.to_string(), q.1, data.timelimit as u64, data.viewlimit as usize)).unwrap();
-            match data.rx.recv().unwrap() {
-                ResultMessage::Messages(m, s) => {
-                    data.query_time = s;
-                    data.items = m.iter().take(data.viewlimit as usize).map(|m| Item::new(m.as_str())).collect()
-                }
-            }
-
-            Self::sort_and_resolve(data);
-
+            data.tx.send(CommandMessage::Filter(q.0.0.to_string(), q.0.1.to_string(), q.1, data.timelimit as u64, data.viewlimit as usize, data.pointers.clone())).unwrap();
             Handled::Yes
         } else {
              Handled::No
-        }
-    }
-}
-
-impl Delegate {
-    fn resolve_pointers(data: &mut AppState) -> bool {
-        let mut empty_pointer: bool = true;
-        data.pointers.iter().for_each(|ps| {
-            if ps.checked {
-                data.items.iter_mut().for_each(|item| {
-                    item.pointers.push(resolve_pointer(item.text.as_str(), ps.text.as_str()));
-                });
-                empty_pointer = false;
-            }
-        });
-        empty_pointer.clone()
-    }
-
-    fn sort_and_resolve(data: &mut AppState) {
-        if !Self::resolve_pointers(data) {
-            data.items.sort_by(|left, right| {
-                right.pointers.first().unwrap_or(&"".to_string())
-                    .cmp(left.pointers.first().unwrap_or(&"".to_string()))
-            });
-
-            data.items.iter_mut().for_each(|item| {
-                item.view = item.pointers.join(" ")
-            }
-            );
-        } else {
-            data.items.iter_mut().for_each(|i| i.view = i.text.to_string())
         }
     }
 }

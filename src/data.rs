@@ -1,7 +1,7 @@
 use std::fs;
 
 use clipboard::{ClipboardContext, ClipboardProvider};
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Sender;
 use druid::Data;
 use druid::Env;
 use druid::EventCtx;
@@ -11,12 +11,13 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::delegate::{SEARCH, SET_VIEW};
-use crate::index::{CommandMessage, ResultMessage};
+use crate::index::CommandMessage;
 
 #[derive(Clone, Data, Lens)]
 pub struct AppState {
     pub query: String,
     pub timelimit: f64,
+    pub index_prob: f64,
     pub viewlimit: f64,
     pub not_query: String,
     pub exact: bool,
@@ -37,8 +38,6 @@ pub struct AppState {
 
     #[data(ignore)]
     pub tx: Sender<CommandMessage>,
-    #[data(ignore)]
-    pub rx: Receiver<ResultMessage>,
 }
 impl Drop for AppState {
     fn drop(&mut self) {

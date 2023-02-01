@@ -10,27 +10,31 @@ use std::time::{Duration, Instant};
 use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
 use druid::ExtEventSink;
+use druid::im::Vector;
 use human_bytes::human_bytes;
-use melt_rs::get_search_index;
+use jsonptr::{Pointer, ResolveMut};
+use melt_rs::{get_search_index, get_search_index_with_prob};
 use melt_rs::index::SearchIndex;
 use num_format::{Locale, ToFormattedString};
 use rocksdb::{BlockBasedOptions, Cache, DB, DBCompactionStyle, DBCompressionType, DBWithThreadMode, Options, SingleThreaded};
+use serde_json::Value;
 
-use crate::data::AppState;
+use crate::data::{AppState, Item, PointerState};
 
 pub static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static GLOBAL_COUNT_NEW: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_SIZE: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_DATA_SIZE: AtomicU64 = AtomicU64::new(0);
 
 pub fn search_thread(
     rx_search: Receiver<CommandMessage>,
-    tx_search: Sender<CommandMessage>, tx_res: Sender<ResultMessage>,
+    tx_search: Sender<CommandMessage>,
     sink: ExtEventSink) -> JoinHandle<i32> {
     socket_listener(tx_search, sink.clone());
-    index_tread(rx_search, tx_res)
+    index_tread(rx_search, sink.clone())
 }
 
-fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>) -> JoinHandle<i32> {
+fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinHandle<i32> {
     thread::spawn(move || {
         let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
         let path = format!("{}/.melt.db", buf);
@@ -63,7 +67,6 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
         opt.set_blob_gc_force_threshold(0.8);
 
         opt.set_bytes_per_sync(8388608);
-        opt.optimize_for_point_lookup(1024 * 1024);
 
         let cache = Cache::new_lru_cache(16 * 1024 * 1024).unwrap();
         let mut bopt = BlockBasedOptions::default();
@@ -77,6 +80,10 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
 
         let conn: DBWithThreadMode<SingleThreaded> = DBWithThreadMode::open_cf(&opt, path, &["default"]).unwrap();
         let mut index = load_from_json();
+        let prob = index.get_prob();
+        sink.clone().add_idle_callback(move |data: &mut AppState| {
+            data.index_prob = prob;
+        });
         GLOBAL_COUNT.store(index.get_size(), Ordering::SeqCst);
         GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
 
@@ -84,7 +91,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
             match rx_search.recv() {
                 Ok(cm) => {
                     match cm {
-                        CommandMessage::Filter(query, neg_query, exact, time, limit) => {
+                        CommandMessage::Filter(query, neg_query, exact, time, limit, pointer_state) => {
                             let start = Instant::now();
                             let mut positive_keys = index.search(query.as_str(), exact);
                             let mut negative_keys = index.search(neg_query.as_str(), exact);
@@ -136,11 +143,18 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                             }
                             let duration_db = start.elapsed();
                             let res_size = result.len();
-                            tx_res.send(ResultMessage::Messages(result, format!("Index        {:?}\nIndex hits   {}\nRetrieve     {:?}\nProcessed    {}\nResults      {}", duration_index, index_hits.to_formatted_string(&Locale::en), duration_db, processed.to_formatted_string(&Locale::en), res_size.to_formatted_string(&Locale::en)))).unwrap();
+                            let query_time = format!("Index        {:?}\nIndex hits   {}\nRetrieve     {:?}\nProcessed    {}\nResults      {}", duration_index, index_hits.to_formatted_string(&Locale::en), duration_db, processed.to_formatted_string(&Locale::en), res_size.to_formatted_string(&Locale::en));
+
+                            let mut items: Vector<_> = result.iter().take(limit).map(|m| Item::new(m.as_str())).collect();
+                            sort_and_resolve(&mut items, &pointer_state);
+
+                            sink.add_idle_callback(move |data: &mut AppState| {
+                                data.query_time = query_time.clone();
+                                data.items = items.clone();
+                            });
                         }
                         CommandMessage::Quit => {
                             write_index_to_disk(&index);
-
                             return 0;
                         }
                         CommandMessage::InsertJson(cm) => {
@@ -152,6 +166,21 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
                                 GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
                             };
                         }
+
+                        CommandMessage::SetProb(prob) => {
+                            let size = index.get_size();
+                            index = get_search_index_with_prob(prob);
+                            for x in 1..size {
+                                let result1 = conn.get(x.to_le_bytes()).unwrap().unwrap();
+                                let i = index.add(String::from_utf8_lossy(&result1).to_string().as_str());
+                                if i % 10000 == 0 {
+                                    GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
+                                    GLOBAL_COUNT_NEW.store(i, Ordering::SeqCst);
+                                }
+                            }
+                            GLOBAL_COUNT_NEW.store(0, Ordering::SeqCst);
+                        }
+
                         CommandMessage::Clear => {
                             index.clear();
                             GLOBAL_SIZE.store(0, Ordering::SeqCst);
@@ -192,7 +221,11 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
         loop {
             thread::sleep(Duration::from_millis(100));
             sink1.add_idle_callback(move |data: &mut AppState| {
-                data.count = format!("Documents    {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
+                if GLOBAL_COUNT_NEW.load(Ordering::SeqCst) > 0 {
+                    data.count = format!("Documents    {} reindexing at {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string(), GLOBAL_COUNT_NEW.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
+                }else {
+                    data.count = format!("Documents    {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
+                }
                 data.size = format!("Index size   {}", human_bytes(GLOBAL_SIZE.load(Ordering::SeqCst) as f64));
                 data.indexed_data_in_bytes = GLOBAL_DATA_SIZE.load(Ordering::SeqCst);
                 data.indexed_data_in_bytes_string = format!("Data size    {}", human_bytes(GLOBAL_DATA_SIZE.load(Ordering::SeqCst) as f64));
@@ -229,10 +262,11 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
 
 #[derive(Clone)]
 pub enum CommandMessage {
-    Filter(String, String, bool, u64, usize),
+    Filter(String, String, bool, u64, usize, Vector<PointerState>),
     Clear,
     Quit,
     InsertJson(String),
+    SetProb(f64),
 }
 
 pub enum ResultMessage {
@@ -251,6 +285,60 @@ pub fn load_from_json() -> SearchIndex {
             get_search_index()
         }
     }
+}
+
+fn resolve_pointers(items: &mut Vector<Item>, pointer_state: &Vector<PointerState>) -> bool {
+    let mut empty_pointer: bool = true;
+    pointer_state.iter().for_each(|ps| {
+        if ps.checked {
+            items.iter_mut().for_each(|item| {
+                item.pointers.push(resolve_pointer(item.text.as_str(), ps.text.as_str()));
+            });
+            empty_pointer = false;
+        }
+    });
+    empty_pointer.clone()
+}
+
+fn sort_and_resolve(items: &mut Vector<Item>, pointer_state: &Vector<PointerState>) {
+    if !resolve_pointers(items, pointer_state) {
+        items.sort_by(|left, right| {
+            right.pointers.first().unwrap_or(&"".to_string())
+                .cmp(left.pointers.first().unwrap_or(&"".to_string()))
+        });
+
+        items.iter_mut().for_each(|item| {
+            item.view = item.pointers.join(" ")
+        }
+        );
+    } else {
+        items.iter_mut().for_each(|i| i.view = i.text.to_string())
+    }
+}
+
+fn resolve_pointer(text: &str, ps: &str) -> String {
+    let mut json: Value = match serde_json::from_str(text) {
+        Ok(json) => json,
+        Err(_) => {
+            Value::Null
+        }
+    };
+    let ptr = match Pointer::try_from(ps) {
+        Ok(ptr) => ptr,
+        Err(_) => {
+            Pointer::root()
+        }
+    };
+
+    let string = match json.resolve_mut(&ptr) {
+        Ok(v) => { v }
+        Err(_) => { &Value::Null }
+    };
+    if string.is_string() { return string.as_str().unwrap().to_string(); }
+    if !string.is_null() {
+        return string.to_string();
+    }
+    ps.to_string()
 }
 
 fn get_file_as_byte_vec(filename: &String) -> Result<Vec<u8>, Error> {
