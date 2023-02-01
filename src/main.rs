@@ -35,8 +35,7 @@ mod view;
 mod index;
 mod delegate;
 
-#[tokio::main]
-pub async fn main() {
+pub fn main() -> () {
     let main_window = WindowDesc::new(build_ui())
         .title("Melt listening on socket://localhost:7999 expected format is JSON Lines https://jsonlines.org")
         .window_size((1024.0, 768.0))
@@ -77,7 +76,7 @@ pub async fn main() {
         .launch(state)
         .expect("Failed to launch application");
     tx_search.send(CommandMessage::Quit).unwrap();
-    handle.await.unwrap();
+    handle.join().unwrap();
 }
 
 

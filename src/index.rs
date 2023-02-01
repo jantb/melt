@@ -4,16 +4,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Error, Read};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
 use druid::ExtEventSink;
-//use futures::{StreamExt, TryStreamExt};
 use human_bytes::human_bytes;
-// use k8s_openapi::api::core::v1::Pod;
-// use kube::{Api, Client};
-// use kube::api::{ListParams, LogParams};
 use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
 use num_format::{Locale, ToFormattedString};
@@ -28,13 +25,13 @@ pub static GLOBAL_DATA_SIZE: AtomicU64 = AtomicU64::new(0);
 pub fn search_thread(
     rx_search: Receiver<CommandMessage>,
     tx_search: Sender<CommandMessage>, tx_res: Sender<ResultMessage>,
-    sink: ExtEventSink) -> tokio::task::JoinHandle<i32> {
+    sink: ExtEventSink) -> JoinHandle<i32> {
     socket_listener(tx_search, sink.clone());
     index_tread(rx_search, tx_res)
 }
 
-fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>) -> tokio::task::JoinHandle<i32> {
-    tokio::spawn(async move {
+fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage>) -> JoinHandle<i32> {
+    thread::spawn(move || {
         let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
         let path = format!("{}/.melt.db", buf);
 
@@ -81,7 +78,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, tx_res: Sender<ResultMessage
         let conn: DBWithThreadMode<SingleThreaded> = DBWithThreadMode::open_cf(&opt, path, &["default"]).unwrap();
         let mut index = load_from_json();
         GLOBAL_COUNT.store(index.get_size(), Ordering::SeqCst);
-        GLOBAL_SIZE.store(index.get_size_bytes() , Ordering::SeqCst);
+        GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
 
         loop {
             match rx_search.recv() {
@@ -191,9 +188,9 @@ fn write_index_to_disk(index: &SearchIndex) {
 
 fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
     let sink1 = sink.clone();
-    tokio::spawn(async move {
+    thread::spawn(move || {
         loop {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            thread::sleep(Duration::from_millis(100));
             sink1.add_idle_callback(move |data: &mut AppState| {
                 data.count = format!("Documents    {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
                 data.size = format!("Index size   {}", human_bytes(GLOBAL_SIZE.load(Ordering::SeqCst) as f64));
@@ -203,10 +200,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
         }
     });
 
-    //  tailing(tx_send.clone());
-
     let listener = TcpListener::bind("127.0.0.1:7999").unwrap();
-
 
     thread::spawn(move || {
         for stream in listener.incoming() {
@@ -225,43 +219,13 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
                                 }
                             };
                         }
-                        Err(e) => {println!("{}", e)}
+                        Err(e) => { println!("{}", e) }
                     }
                 }
             });
         }
     });
 }
-
-// fn tailing(sender: Sender<CommandMessage>) {
-//     tokio::spawn(async move {
-//         let client = match Client::try_default().await {
-//             Ok(c) => { c }
-//             Err(e) => {
-//                 println!("{}", e.to_string());
-//                 return;
-//             }
-//         };
-//         let pods: Api<Pod> = Api::default_namespaced(client);
-//         let pods_vec = pods.list(&ListParams::default()).await.unwrap().items;
-//         pods_vec.into_iter().for_each(|p| {
-//             let api = pods.clone();
-//             let sender_clone = sender.clone();
-//             tokio::spawn(async move {
-//                 println!("{}", &(p.metadata.name.clone().unwrap().to_string()));
-//                 let mut logs = api.log_stream(&(p.metadata.name.clone().unwrap()), &LogParams {
-//                     follow: true,
-//                     tail_lines: Some(1),
-//                     ..LogParams::default()
-//                 })
-//                     .await.unwrap().boxed();
-//                 while let Some(line) = logs.try_next().await.unwrap() {
-//                     sender_clone.send(CommandMessage::InsertJson(String::from_utf8_lossy(&line).to_string())).unwrap();
-//                 }
-//             });
-//         });
-//     });
-// }
 
 #[derive(Clone)]
 pub enum CommandMessage {
@@ -281,7 +245,7 @@ pub fn load_from_json() -> SearchIndex {
     let file = get_file_as_byte_vec(&path);
     match file {
         Ok(file) => {
-            deserialize(&file).unwrap()
+            deserialize(&file).unwrap_or(get_search_index())
         }
         Err(_) => {
             get_search_index()
