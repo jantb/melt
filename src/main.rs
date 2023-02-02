@@ -40,7 +40,7 @@ pub fn main() -> () {
         .title("Melt listening on socket://localhost:7999 expected format is JSON Lines https://jsonlines.org")
         .window_size((1024.0, 768.0))
         .set_window_state(WindowState::Maximized);
-    let (tx_search, rx_search) = bounded(10);
+    let (tx_search, rx_search) = bounded(0);
 
 
     let launcher = AppLauncher::with_window(main_window);
