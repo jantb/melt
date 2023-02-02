@@ -109,6 +109,9 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                             let string = query.to_lowercase();
                             let lowercase = string.as_str();
 
+                            let string_neg = neg_query.to_lowercase();
+                            let lowercase_neg = string_neg.as_str();
+
                             let keys: Vec<Vec<u8>> = positive_keys.iter().map(|x| x.to_le_bytes().to_vec()).collect();
                             let keys_neg: Vec<Vec<u8>> = negative_keys.iter().map(|x| x.to_le_bytes().to_vec()).collect();
                             let index_hits = keys.len() + keys_neg.len();
@@ -134,7 +137,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                                     .map(|v_i_opt| {
                                         let vec_u8 = v_i_opt.clone().unwrap().unwrap();
                                         String::from_utf8_lossy(&vec_u8).to_string()
-                                    }).filter(|string| is_match(exact, lowercase, string)).collect::<Vec<String>>();
+                                    }).filter(|string| !is_match(exact, lowercase_neg, string) && is_match(exact,lowercase,string)).collect::<Vec<String>>();
                                 result.extend(map);
                             });
 
