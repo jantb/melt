@@ -20,11 +20,13 @@ use rocksdb::{BlockBasedOptions, Cache, DB, DBCompactionStyle, DBCompressionType
 use serde_json::Value;
 
 use crate::data::{AppState, Item, PointerState};
+use crate::GLOBAL_STATE;
 
 pub static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_COUNT_NEW: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_SIZE: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_DATA_SIZE: AtomicU64 = AtomicU64::new(0);
+
 
 pub fn search_thread(
     rx_search: Receiver<CommandMessage>,
@@ -92,6 +94,14 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                 Ok(cm) => {
                     match cm {
                         CommandMessage::Filter(query, neg_query, exact, time, limit, pointer_state) => {
+
+                           if GLOBAL_STATE.lock().unwrap().query != query && GLOBAL_STATE.lock().unwrap().query_neg != neg_query {
+                               continue;
+                           }
+
+                            sink.add_idle_callback(move |data: &mut AppState| {
+                                data.ongoing_search = true;
+                            });
                             let start = Instant::now();
                             let mut positive_keys = index.search(query.as_str(), exact);
                             let mut negative_keys = index.search(neg_query.as_str(), exact);
@@ -119,9 +129,10 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
 
                             let mut processed = 0;
                             let mut result: Vec<String> = vec![];
-                            keys.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < time as u128).for_each(|v| {
+                            let chunk_size = 10;
+                            keys.chunks(chunk_size).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < time as u128).for_each(|v| {
                                 if result.len() > limit { return; }
-                                processed += 100;
+                                processed += chunk_size;
                                 let map = conn.multi_get(v).iter()
                                     .map(|v_i_opt| {
                                         let vec_u8 = v_i_opt.clone().unwrap().unwrap();
@@ -130,9 +141,9 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                                 result.extend(map);
                             });
 
-                            keys_neg.chunks(100).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < time as u128).for_each(|v| {
+                            keys_neg.chunks(chunk_size).take_while(|_| (duration_index.as_millis() + start.elapsed().as_millis()) < time as u128).for_each(|v| {
                                 if result.len() > limit { return; }
-                                processed += 100;
+                                processed += chunk_size;
                                 let map = conn.multi_get(v).iter()
                                     .map(|v_i_opt| {
                                         let vec_u8 = v_i_opt.clone().unwrap().unwrap();
@@ -154,6 +165,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                             sink.add_idle_callback(move |data: &mut AppState| {
                                 data.query_time = query_time.clone();
                                 data.items = items.clone();
+                                data.ongoing_search = false;
                             });
                         }
                         CommandMessage::Quit => {

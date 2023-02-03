@@ -33,8 +33,11 @@ pub struct AppState {
     pub indexed_data_in_bytes_string: String,
     #[data(ignore)]
     pub settings: bool,
+    #[data(ignore)]
+    pub ongoing_search: bool,
     pub properties: Vector<String>,
     pub view_column: String,
+    
 
     #[data(ignore)]
     pub tx: Sender<CommandMessage>,

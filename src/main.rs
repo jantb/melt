@@ -11,11 +11,13 @@ unused_extern_crates
 #![windows_subsystem = "windows"]
 
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::Mutex;
 
 use bincode::deserialize;
 use crossbeam_channel::bounded;
 use druid::{AppLauncher, WindowDesc, WindowState};
 use druid::im::Vector;
+use once_cell::sync::Lazy;
 use serde as _;
 
 use data::AppState;
@@ -31,6 +33,19 @@ mod view;
 
 mod index;
 mod delegate;
+
+pub struct GlobalState {
+    query: String,
+    query_neg: String
+}
+
+impl Default for GlobalState {
+    fn default() -> Self {
+        GlobalState { query: "".to_string(), query_neg: "".to_string() }
+    }
+}
+
+pub static GLOBAL_STATE: Lazy<Mutex<GlobalState>> = Lazy::new(||Mutex::new(GlobalState::default()));
 
 pub fn main() -> () {
     let main_window = WindowDesc::new(build_ui())
@@ -61,6 +76,7 @@ pub fn main() -> () {
         indexed_data_in_bytes: parameters.indexed_data_in_bytes,
         indexed_data_in_bytes_string: "".to_string(),
         settings: false,
+        ongoing_search: false,
         properties: Default::default(),
         view_column: parameters.view_column,
         tx: tx_search.clone(),

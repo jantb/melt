@@ -5,6 +5,7 @@ use druid::widget::{Checkbox, Container, Controller, Either, LineBreaking, Scrol
 
 use crate::data::*;
 use crate::delegate::{CHANGE_SETTINGS, CHECK_CLICKED_FOR_POINTER, CLEAR_DB, SEARCH, SET_VIEW_COLUMN};
+use crate::GLOBAL_STATE;
 use crate::index::{CommandMessage, GLOBAL_COUNT};
 
 fn new_search_textbox() -> impl Widget<AppState> {
@@ -12,7 +13,7 @@ fn new_search_textbox() -> impl Widget<AppState> {
         .with_placeholder("Filter documents")
         .expand_width()
         .lens(AppState::query)
-        .controller(TakeFocus);
+        .controller(SearchController);
     let new_search_textbox_neq = TextBox::new()
         .with_placeholder("Filter away documents")
         .expand_width()
@@ -28,18 +29,21 @@ fn new_search_textbox() -> impl Widget<AppState> {
     })
 }
 
-struct TakeFocus;
+struct SearchController;
 
 struct ControllerForNegSearch;
 
-impl<W: Widget<AppState>> Controller<AppState, W> for TakeFocus {
+impl<W: Widget<AppState>> Controller<AppState, W> for SearchController {
     fn event(&mut self, child: &mut W, ctx: &mut EventCtx, event: &Event, data: &mut AppState, env: &Env) {
         if let Event::WindowConnected = event {
             ctx.request_focus();
         }
+
         if let Event::KeyUp(_) = event {
             let prob = (data.index_prob as f32).powi(trigram(data.query.as_str()).len() as i32);
             data.prob = convert_to_ratio(prob as f64, 1., GLOBAL_COUNT.load(Ordering::SeqCst));
+            GLOBAL_STATE.lock().unwrap().query = data.query.to_string();
+            GLOBAL_STATE.lock().unwrap().query_neg = data.not_query.to_string();
             ctx.submit_command(SEARCH.with(((data.query.to_string(), data.not_query.to_string()), data.exact)));
         }
 
