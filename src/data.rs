@@ -43,8 +43,8 @@ impl Drop for AppState {
     fn drop(&mut self) {
         let parameters = self.get_serializable_parameters();
         let serialized: Vec<u8> = bincode::serialize(&parameters).unwrap();
-        let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-        let path = format!("{}/.melt_state.dat", buf);
+        //let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+        let path = ".melt_state.dat";
         fs::write(path, serialized).unwrap();
     }
 }

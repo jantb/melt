@@ -10,9 +10,6 @@ unused_extern_crates
 
 #![windows_subsystem = "windows"]
 
-use std::fs;
-use std::fs::File;
-use std::io::{Error, Read};
 use std::sync::atomic::Ordering::SeqCst;
 
 use bincode::deserialize;
@@ -26,7 +23,7 @@ use view::build_ui;
 
 use crate::data::SerializableParameters;
 use crate::delegate::Delegate;
-use crate::index::{CommandMessage, GLOBAL_DATA_SIZE, search_thread};
+use crate::index::{CommandMessage, get_file_as_byte_vec, GLOBAL_DATA_SIZE, search_thread};
 
 mod data;
 
@@ -80,8 +77,8 @@ pub fn main() -> () {
 
 
 pub fn load_from_json() -> SerializableParameters {
-    let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-    let path = format!("{}/.melt_state.dat", buf);
+ //   let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+    let path = ".melt_state.dat";
     let file = get_file_as_byte_vec(&path);
     match file {
         Ok(file) => {
@@ -93,13 +90,4 @@ pub fn load_from_json() -> SerializableParameters {
             SerializableParameters::default()
         }
     }
-}
-
-fn get_file_as_byte_vec(filename: &String) -> Result<Vec<u8>, Error> {
-    let mut f = File::open(&filename)?;
-    let metadata = fs::metadata(&filename)?;
-    let mut buffer = vec![0; metadata.len() as usize];
-    f.read(&mut buffer)?;
-
-    Ok(buffer)
 }

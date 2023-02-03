@@ -36,8 +36,8 @@ pub fn search_thread(
 
 fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinHandle<i32> {
     thread::spawn(move || {
-        let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-        let path = format!("{}/.melt.db", buf);
+     //   let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+        let path = ".melt.db";
 
         let cpu = num_cpus::get() as _;
         let mut opt = Options::default();
@@ -189,8 +189,8 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                             GLOBAL_SIZE.store(0, Ordering::SeqCst);
                             GLOBAL_COUNT.store(0, Ordering::SeqCst);
                             GLOBAL_DATA_SIZE.store(0, Ordering::SeqCst);
-                            let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-                            let path = format!("{}/.melt.db", buf);
+                        //    let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+                            let path = ".melt.db";
                             let _ = DB::destroy(&Options::default(), path);
                         }
                     }
@@ -211,8 +211,8 @@ fn is_match(exact: bool, lowercase: &str, s: &String) -> bool {
 
 fn write_index_to_disk(index: &SearchIndex) {
     let serialized: Vec<u8> = bincode::serialize(&index).unwrap();
-    let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-    let path = format!("{}/.melt_index.dat", buf);
+  //  let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+    let path = ".melt_index.dat";
 
     fs::write(path, serialized).unwrap();
 }
@@ -277,8 +277,8 @@ pub enum ResultMessage {
 }
 
 pub fn load_from_json() -> SearchIndex {
-    let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-    let path = format!("{}/.melt_index.dat", buf);
+  //  let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+    let path = ".melt_index.dat";
     let file = get_file_as_byte_vec(&path);
     match file {
         Ok(file) => {
@@ -344,7 +344,7 @@ fn resolve_pointer(text: &str, ps: &str) -> String {
     ps.to_string()
 }
 
-fn get_file_as_byte_vec(filename: &String) -> Result<Vec<u8>, Error> {
+pub fn get_file_as_byte_vec(filename: &str) -> Result<Vec<u8>, Error> {
     let mut f = File::open(&filename)?;
     let metadata = fs::metadata(&filename)?;
     let mut buffer = vec![0; metadata.len() as usize];
