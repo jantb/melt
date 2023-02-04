@@ -1,12 +1,11 @@
 #![deny(
-unused_import_braces,
-unused_imports,
-unused_variables,
-unused_allocation,
-unused_extern_crates
+    unused_import_braces,
+    unused_imports,
+    unused_variables,
+    unused_allocation,
+    unused_extern_crates
 )]
 #![allow(dead_code, non_upper_case_globals)]
-
 #![windows_subsystem = "windows"]
 
 use std::sync::atomic::Ordering::SeqCst;
@@ -14,8 +13,8 @@ use std::sync::Mutex;
 
 use bincode::deserialize;
 use crossbeam_channel::bounded;
-use druid::{AppLauncher, WindowDesc, WindowState};
 use druid::im::Vector;
+use druid::{AppLauncher, WindowDesc, WindowState};
 use once_cell::sync::Lazy;
 use serde as _;
 
@@ -24,27 +23,31 @@ use view::build_ui;
 
 use crate::data::SerializableParameters;
 use crate::delegate::Delegate;
-use crate::index::{CommandMessage, get_file_as_byte_vec, GLOBAL_DATA_SIZE, search_thread};
+use crate::index::{get_file_as_byte_vec, search_thread, CommandMessage, GLOBAL_DATA_SIZE};
 
 mod data;
 
 mod view;
 
-mod index;
 mod delegate;
+mod index;
 
 pub struct GlobalState {
     query: String,
-    query_neg: String
+    query_neg: String,
 }
 
 impl Default for GlobalState {
     fn default() -> Self {
-        GlobalState { query: "".to_string(), query_neg: "".to_string() }
+        GlobalState {
+            query: "".to_string(),
+            query_neg: "".to_string(),
+        }
     }
 }
 
-pub static GLOBAL_STATE: Lazy<Mutex<GlobalState>> = Lazy::new(||Mutex::new(GlobalState::default()));
+pub static GLOBAL_STATE: Lazy<Mutex<GlobalState>> =
+    Lazy::new(|| Mutex::new(GlobalState::default()));
 
 pub fn main() -> () {
     let main_window = WindowDesc::new(build_ui())
@@ -53,10 +56,9 @@ pub fn main() -> () {
         .set_window_state(WindowState::Maximized);
     let (tx_search, rx_search) = bounded(0);
 
-
     let launcher = AppLauncher::with_window(main_window);
     let sink = launcher.get_external_handle();
-    let handle = search_thread(rx_search, tx_search.clone(),  sink);
+    let handle = search_thread(rx_search, tx_search.clone(), sink);
     let parameters = load_from_json();
     let state = AppState {
         query: "".to_string(),
@@ -81,7 +83,6 @@ pub fn main() -> () {
         tx: tx_search.clone(),
     };
 
-
     launcher
         .delegate(Delegate {})
         .launch(state)
@@ -90,19 +91,17 @@ pub fn main() -> () {
     handle.join().unwrap();
 }
 
-
 pub fn load_from_json() -> SerializableParameters {
- //   let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+    //   let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
     let path = ".melt_state.dat";
     let file = get_file_as_byte_vec(&path);
     match file {
         Ok(file) => {
-            let parameters: SerializableParameters = deserialize(&file).unwrap_or(SerializableParameters::default());
+            let parameters: SerializableParameters =
+                deserialize(&file).unwrap_or(SerializableParameters::default());
             GLOBAL_DATA_SIZE.store(parameters.indexed_data_in_bytes, SeqCst);
             parameters
         }
-        Err(_) => {
-            SerializableParameters::default()
-        }
+        Err(_) => SerializableParameters::default(),
     }
 }

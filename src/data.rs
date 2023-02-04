@@ -37,11 +37,11 @@ pub struct AppState {
     pub ongoing_search: bool,
     pub properties: Vector<String>,
     pub view_column: String,
-    
 
     #[data(ignore)]
     pub tx: Sender<CommandMessage>,
 }
+
 impl Drop for AppState {
     fn drop(&mut self) {
         let parameters = self.get_serializable_parameters();
@@ -54,9 +54,10 @@ impl Drop for AppState {
 
 impl AppState {
     fn get_serializable_parameters(&self) -> SerializableParameters {
-        SerializableParameters { view_column: self.view_column.to_string(),
-            indexed_data_in_bytes : self.indexed_data_in_bytes,
-            pointer_state: self.pointers.iter().map(|p| p.clone()).collect::<Vec<PointerState>>()
+        SerializableParameters {
+            view_column: self.view_column.to_string(),
+            indexed_data_in_bytes: self.indexed_data_in_bytes,
+            pointer_state: self.pointers.iter().map(|p| p.clone()).collect::<Vec<PointerState>>(),
         }
     }
 }
@@ -89,7 +90,7 @@ pub struct PointerStateItem {
 
 impl AppState {
     pub fn click_search(ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
-        ctx.submit_command(SEARCH.with(((data.query.to_string(),data.not_query.to_string()) , data.exact)));
+        ctx.submit_command(SEARCH.with(((data.query.to_string(), data.not_query.to_string()), data.exact)));
     }
 }
 

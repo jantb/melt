@@ -27,10 +27,14 @@ impl AppDelegate<AppState> for Delegate {
     ) -> Handled {
         if let Some(text) = cmd.get(SET_VIEW) {
             if data.pointers.is_empty() {
-                generate_pointers(&serde_json::from_str(&text.as_str()).unwrap()).iter().for_each(|v| data.pointers.push_front(PointerState {
-                    text: v.to_string(),
-                    checked: false,
-                }));
+                generate_pointers(&serde_json::from_str(&text.as_str()).unwrap())
+                    .iter()
+                    .for_each(|v| {
+                        data.pointers.push_front(PointerState {
+                            text: v.to_string(),
+                            checked: false,
+                        })
+                    });
             }
             if data.view_column.is_empty() {
                 data.view = parse_json(text.to_string().as_str());
@@ -45,7 +49,11 @@ impl AppDelegate<AppState> for Delegate {
             data.settings = *b;
             Handled::Yes
         } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER) {
-            data.pointers.iter_mut().for_each(|p| if p.text == pointer_state.text { p.checked = pointer_state.checked });
+            data.pointers.iter_mut().for_each(|p| {
+                if p.text == pointer_state.text {
+                    p.checked = pointer_state.checked
+                }
+            });
             Handled::Yes
         } else if let Some(param) = cmd.get(SET_VIEW_COLUMN) {
             data.view_column = param.to_string();
@@ -54,11 +62,22 @@ impl AppDelegate<AppState> for Delegate {
             data.tx.send(CommandMessage::Clear).unwrap();
             Handled::Yes
         } else if let Some(q) = cmd.get(SEARCH) {
-            if q.0.0.is_empty() { return Handled::Yes; };
-            data.tx.send(CommandMessage::Filter(q.0.0.to_string(), q.0.1.to_string(), q.1, data.timelimit as u64, data.viewlimit as usize, data.pointers.clone())).unwrap();
+            if q.0 .0.is_empty() {
+                return Handled::Yes;
+            };
+            data.tx
+                .send(CommandMessage::Filter(
+                    q.0 .0.to_string(),
+                    q.0 .1.to_string(),
+                    q.1,
+                    data.timelimit as u64,
+                    data.viewlimit as usize,
+                    data.pointers.clone(),
+                ))
+                .unwrap();
             Handled::Yes
         } else {
-             Handled::No
+            Handled::No
         }
     }
 }
@@ -66,22 +85,20 @@ impl AppDelegate<AppState> for Delegate {
 fn resolve_pointer(text: &str, ps: &str) -> String {
     let mut json: Value = match serde_json::from_str(text) {
         Ok(json) => json,
-        Err(_) => {
-            Value::Null
-        }
+        Err(_) => Value::Null,
     };
     let ptr = match Pointer::try_from(ps) {
         Ok(ptr) => ptr,
-        Err(_) => {
-            Pointer::root()
-        }
+        Err(_) => Pointer::root(),
     };
 
     let string = match json.resolve_mut(&ptr) {
-        Ok(v) => { v }
-        Err(_) => { &Value::Null }
+        Ok(v) => v,
+        Err(_) => &Value::Null,
     };
-    if string.is_string() { return string.as_str().unwrap().to_string(); }
+    if string.is_string() {
+        return string.as_str().unwrap().to_string();
+    }
     if !string.is_null() {
         return string.to_string();
     }
