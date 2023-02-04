@@ -1,5 +1,4 @@
 use std::{fs, thread};
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Error, Read};
 use std::net::TcpListener;
@@ -11,6 +10,7 @@ use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
 use druid::ExtEventSink;
 use druid::im::Vector;
+use fnv::FnvHashSet;
 use human_bytes::human_bytes;
 use jsonptr::{Pointer, ResolveMut};
 use melt_rs::{get_search_index, get_search_index_with_prob};
@@ -38,7 +38,7 @@ pub fn search_thread(
 
 fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinHandle<i32> {
     thread::spawn(move || {
-     //   let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+        //   let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
         let path = ".melt.db";
 
         let cpu = num_cpus::get() as _;
@@ -94,10 +94,9 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                 Ok(cm) => {
                     match cm {
                         CommandMessage::Filter(query, neg_query, exact, time, limit, pointer_state) => {
-
-                           if GLOBAL_STATE.lock().unwrap().query != query && GLOBAL_STATE.lock().unwrap().query_neg != neg_query {
-                               continue;
-                           }
+                            if GLOBAL_STATE.lock().unwrap().query != query && GLOBAL_STATE.lock().unwrap().query_neg != neg_query {
+                                continue;
+                            }
 
                             sink.add_idle_callback(move |data: &mut AppState| {
                                 data.ongoing_search = true;
@@ -108,11 +107,12 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
 
                             let duration_index = start.elapsed();
                             let start = Instant::now();
-
-                            let set: HashSet<usize> = positive_keys.iter().cloned().collect();
-                            let set_neg: HashSet<usize> = negative_keys.iter().cloned().collect();
-                            negative_keys.retain(|x| set.contains(x));
-                            positive_keys.retain(|x| !set_neg.contains(x));
+                            if !neg_query.is_empty() {
+                                let set: FnvHashSet<usize> = positive_keys.iter().cloned().collect();
+                                let set_neg: FnvHashSet<usize> = negative_keys.iter().cloned().collect();
+                                negative_keys.retain(|x| set.contains(x));
+                                positive_keys.retain(|x| !set_neg.contains(x));
+                            }
 
                             positive_keys.reverse();
                             negative_keys.reverse();
@@ -148,7 +148,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                                     .map(|v_i_opt| {
                                         let vec_u8 = v_i_opt.clone().unwrap().unwrap();
                                         String::from_utf8_lossy(&vec_u8).to_string()
-                                    }).filter(|string| !is_match(exact, lowercase_neg, string) && is_match(exact,lowercase,string)).collect::<Vec<String>>();
+                                    }).filter(|string| !is_match(exact, lowercase_neg, string) && is_match(exact, lowercase, string)).collect::<Vec<String>>();
                                 result.extend(map);
                             });
 
@@ -201,7 +201,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                             GLOBAL_SIZE.store(0, Ordering::SeqCst);
                             GLOBAL_COUNT.store(0, Ordering::SeqCst);
                             GLOBAL_DATA_SIZE.store(0, Ordering::SeqCst);
-                        //    let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+                            //    let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
                             let path = ".melt.db";
                             let _ = DB::destroy(&Options::default(), path);
                         }
@@ -223,7 +223,7 @@ fn is_match(exact: bool, lowercase: &str, s: &String) -> bool {
 
 fn write_index_to_disk(index: &SearchIndex) {
     let serialized: Vec<u8> = bincode::serialize(&index).unwrap();
-  //  let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+    //  let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
     let path = ".melt_index.dat";
 
     fs::write(path, serialized).unwrap();
@@ -238,7 +238,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
             sink1.add_idle_callback(move |data: &mut AppState| {
                 if GLOBAL_COUNT_NEW.load(Ordering::SeqCst) > 0 {
                     data.count = format!("Documents    {} reindexing at {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string(), GLOBAL_COUNT_NEW.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
-                }else {
+                } else {
                     data.count = format!("Documents    {}", GLOBAL_COUNT.load(Ordering::SeqCst).to_formatted_string(&Locale::en).to_string());
                 }
                 data.size = format!("Index size   {}", human_bytes(GLOBAL_SIZE.load(Ordering::SeqCst) as f64));
@@ -289,7 +289,7 @@ pub enum ResultMessage {
 }
 
 pub fn load_from_json() -> SearchIndex {
-  //  let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
+    //  let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
     let path = ".melt_index.dat";
     let file = get_file_as_byte_vec(&path);
     match file {
