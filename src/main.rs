@@ -82,12 +82,13 @@ async fn main() -> () {
         view_column: parameters.view_column,
         tx: tx_search.clone(),
     };
-    search_thread(rx_search, tx_search.clone(), sink).await;
+    let handle = search_thread(rx_search, tx_search.clone(), sink).await;
     launcher
         .delegate(Delegate {})
         .launch(state)
         .expect("Failed to launch application");
     tx_search.send(CommandMessage::Quit).unwrap();
+    handle.join().unwrap();
 }
 
 pub fn load_from_json() -> SerializableParameters {
