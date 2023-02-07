@@ -129,8 +129,6 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                                 positive_keys.retain(|x| !set_neg.contains(x));
                             }
 
-                            positive_keys.reverse();
-                            negative_keys.reverse();
                             let string = query.to_lowercase();
                             let lowercase = string.as_str();
 
@@ -149,8 +147,8 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
 
                             let mut processed = 0;
                             let mut result: Vec<String> = vec![];
-                            let chunk_size = 10;
-                            keys.chunks(chunk_size)
+                            keys.iter()
+                                .rev()
                                 .take_while(|_| {
                                     (duration_index.as_millis() + start.elapsed().as_millis())
                                         < time as u128
@@ -159,12 +157,12 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                                     if result.len() > limit {
                                         return;
                                     }
-                                    processed += chunk_size;
+                                    processed += 1;
                                     let map = conn
-                                        .multi_get(v)
+                                        .get(v)
                                         .iter()
                                         .map(|v_i_opt| {
-                                            let vec_u8 = v_i_opt.clone().unwrap().unwrap();
+                                            let vec_u8 = v_i_opt.clone().unwrap();
                                             String::from_utf8_lossy(&vec_u8).to_string()
                                         })
                                         .filter(|string| is_match(exact, lowercase, string))
@@ -173,7 +171,8 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                                 });
 
                             keys_neg
-                                .chunks(chunk_size)
+                                .iter()
+                                .rev()
                                 .take_while(|_| {
                                     (duration_index.as_millis() + start.elapsed().as_millis())
                                         < time as u128
@@ -182,12 +181,12 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                                     if result.len() > limit {
                                         return;
                                     }
-                                    processed += chunk_size;
+                                    processed += 1;
                                     let map = conn
-                                        .multi_get(v)
+                                        .get(v)
                                         .iter()
                                         .map(|v_i_opt| {
-                                            let vec_u8 = v_i_opt.clone().unwrap().unwrap();
+                                            let vec_u8 = v_i_opt.clone().unwrap();
                                             String::from_utf8_lossy(&vec_u8).to_string()
                                         })
                                         .filter(|string| {
