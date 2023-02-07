@@ -39,6 +39,8 @@ pub fn search_thread(
     index_tread(rx_search, sink.clone())
 }
 
+pub type FilterCallback = fn(&str) -> bool;
+
 fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinHandle<i32> {
     thread::spawn(move || {
         //   let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
@@ -105,6 +107,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                             limit,
                             pointer_state,
                         ) => {
+                            let mut time = time as u128;
                             if GLOBAL_STATE.lock().unwrap().query != query
                                 && GLOBAL_STATE.lock().unwrap().query_neg != neg_query
                             {
@@ -135,74 +138,34 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                             let string_neg = neg_query.to_lowercase();
                             let lowercase_neg = string_neg.as_str();
 
-                            let keys: Vec<Vec<u8>> = positive_keys
-                                .iter()
-                                .map(|x| x.to_le_bytes().to_vec())
-                                .collect();
-                            let keys_neg: Vec<Vec<u8>> = negative_keys
-                                .iter()
-                                .map(|x| x.to_le_bytes().to_vec())
-                                .collect();
-                            let index_hits = keys.len() + keys_neg.len();
+                            let index_hits = positive_keys.len() + negative_keys.len();
 
-                            let mut processed = 0;
-                            let mut result: Vec<String> = vec![];
-                            keys.iter()
-                                .rev()
-                                .take_while(|_| {
-                                    (duration_index.as_millis() + start.elapsed().as_millis())
-                                        < time as u128
-                                })
-                                .for_each(|v| {
-                                    if result.len() > limit {
-                                        return;
-                                    }
-                                    processed += 1;
-                                    let map = conn
-                                        .get(v)
-                                        .iter()
-                                        .map(|v_i_opt| {
-                                            let vec_u8 = v_i_opt.clone().unwrap();
-                                            String::from_utf8_lossy(&vec_u8).to_string()
-                                        })
-                                        .filter(|string| is_match(exact, lowercase, string))
-                                        .collect::<Vec<String>>();
-                                    result.extend(map);
-                                });
+                            time -= duration_index.as_millis();
 
-                            keys_neg
-                                .iter()
-                                .rev()
-                                .take_while(|_| {
-                                    (duration_index.as_millis() + start.elapsed().as_millis())
-                                        < time as u128
-                                })
-                                .for_each(|v| {
-                                    if result.len() > limit {
-                                        return;
-                                    }
-                                    processed += 1;
-                                    let map = conn
-                                        .get(v)
-                                        .iter()
-                                        .map(|v_i_opt| {
-                                            let vec_u8 = v_i_opt.clone().unwrap();
-                                            String::from_utf8_lossy(&vec_u8).to_string()
-                                        })
-                                        .filter(|string| {
-                                            !is_match(exact, lowercase_neg, string)
-                                                && is_match(exact, lowercase, string)
-                                        })
-                                        .collect::<Vec<String>>();
-                                    result.extend(map);
-                                });
+                            let mut result = search(
+                                positive_keys,
+                                limit,
+                                |s: &String| is_match(exact, lowercase, s),
+                                start,
+                                time,
+                                &conn,
+                            );
 
-                            if processed > index_hits {
-                                processed = index_hits;
-                            }
+                            result.extend(search(
+                                negative_keys,
+                                limit - result.len(),
+                                |s: &String| {
+                                    !is_match(exact, lowercase_neg, s)
+                                        && is_match(exact, lowercase, s)
+                                },
+                                start,
+                                time,
+                                &conn,
+                            ));
+
                             let duration_db = start.elapsed();
                             let res_size = result.len();
-                            let query_time = format!("Index        {:?}\nIndex hits   {}\nRetrieve     {:?}\nProcessed    {}\nResults      {}", duration_index, index_hits.to_formatted_string(&Locale::en), duration_db, processed.to_formatted_string(&Locale::en), res_size.to_formatted_string(&Locale::en));
+                            let query_time = format!("Index        {:?}\nIndex hits   {}\nRetrieve     {:?}\nResults      {}", duration_index, index_hits.to_formatted_string(&Locale::en), duration_db, res_size.to_formatted_string(&Locale::en));
 
                             let mut items: Vector<_> = result
                                 .iter()
@@ -264,7 +227,27 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
     })
 }
 
-fn is_match(exact: bool, lowercase: &str, s: &String) -> bool {
+fn search(
+    keys: Vec<usize>,
+    limit: usize,
+    filter: impl Fn(&String) -> bool,
+    start: Instant,
+    time: u128,
+    conn: &DBWithThreadMode<SingleThreaded>,
+) -> Vec<String> {
+    keys.iter()
+        .rev()
+        .take_while(|_| start.elapsed().as_millis() < time)
+        .map(|x| {
+            String::from_utf8_lossy(&conn.get(x.to_le_bytes().to_vec()).unwrap().unwrap())
+                .to_string()
+        })
+        .filter(filter)
+        .take(limit)
+        .collect::<Vec<String>>()
+}
+
+fn is_match(exact: bool, lowercase: &str, s: &str) -> bool {
     if exact {
         s.to_lowercase().contains(lowercase)
     } else {
