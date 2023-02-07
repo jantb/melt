@@ -13,6 +13,9 @@ use druid::ExtEventSink;
 use fnv::FnvHashSet;
 use human_bytes::human_bytes;
 use jsonptr::{Pointer, ResolveMut};
+use k8s_openapi::api::core::v1::Pod;
+use kube::api::{ListParams, LogParams};
+use kube::{Api, Client};
 use melt_rs::index::SearchIndex;
 use melt_rs::{get_search_index, get_search_index_with_prob};
 use num_format::{Locale, ToFormattedString};
@@ -20,7 +23,7 @@ use rocksdb::{
     BlockBasedOptions, Cache, DBCompactionStyle, DBCompressionType, DBWithThreadMode, Options,
     SingleThreaded, DB,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::data::{AppState, Item, PointerState};
 use crate::GLOBAL_STATE;
@@ -30,16 +33,45 @@ pub static GLOBAL_COUNT_NEW: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_SIZE: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_DATA_SIZE: AtomicU64 = AtomicU64::new(0);
 
-pub fn search_thread(
+pub async fn search_thread(
     rx_search: Receiver<CommandMessage>,
     tx_search: Sender<CommandMessage>,
     sink: ExtEventSink,
 ) -> JoinHandle<i32> {
-    socket_listener(tx_search, sink.clone());
-    index_tread(rx_search, sink.clone())
+    socket_listener(tx_search.clone(), sink.clone());
+    let handle = index_tread(rx_search, sink.clone());
+    pods(tx_search).await;
+    handle
 }
 
-pub type FilterCallback = fn(&str) -> bool;
+async fn pods(tx_search: Sender<CommandMessage>) {
+    tokio::spawn(async move {
+        let client = Client::try_default().await.unwrap();
+        let pods: Api<Pod> = Api::default_namespaced(client);
+        let x = pods.list(&ListParams::default()).await.unwrap();
+
+        for p in x.items {
+            let logs = pods
+                .logs(
+                    &p.clone().metadata.name.unwrap(),
+                    &LogParams {
+                        follow: false,
+                        tail_lines: Some(1),
+                        ..LogParams::default()
+                    },
+                )
+                .await
+                .unwrap();
+            logs.split("\n").for_each(|s| {
+                tx_search
+                    .send(CommandMessage::InsertJson(
+                        json!({"pod": &p.clone().metadata.name.unwrap(), "log": s}).to_string(),
+                    ))
+                    .unwrap();
+            });
+        }
+    });
+}
 
 fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinHandle<i32> {
     thread::spawn(move || {

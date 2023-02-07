@@ -62,9 +62,6 @@ impl AppDelegate<AppState> for Delegate {
             data.tx.send(CommandMessage::Clear).unwrap();
             Handled::Yes
         } else if let Some(q) = cmd.get(SEARCH) {
-            if q.0 .0.is_empty() {
-                return Handled::Yes;
-            };
             data.tx
                 .send(CommandMessage::Filter(
                     q.0 .0.to_string(),

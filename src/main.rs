@@ -49,7 +49,8 @@ impl Default for GlobalState {
 pub static GLOBAL_STATE: Lazy<Mutex<GlobalState>> =
     Lazy::new(|| Mutex::new(GlobalState::default()));
 
-pub fn main() -> () {
+#[tokio::main]
+async fn main() -> () {
     let main_window = WindowDesc::new(build_ui())
         .title("Melt listening on socket://localhost:7999 expected format is JSON Lines https://jsonlines.org")
         .window_size((1024.0, 768.0))
@@ -58,7 +59,6 @@ pub fn main() -> () {
 
     let launcher = AppLauncher::with_window(main_window);
     let sink = launcher.get_external_handle();
-    let handle = search_thread(rx_search, tx_search.clone(), sink);
     let parameters = load_from_json();
     let state = AppState {
         query: "".to_string(),
@@ -82,13 +82,12 @@ pub fn main() -> () {
         view_column: parameters.view_column,
         tx: tx_search.clone(),
     };
-
+    search_thread(rx_search, tx_search.clone(), sink).await;
     launcher
         .delegate(Delegate {})
         .launch(state)
         .expect("Failed to launch application");
     tx_search.send(CommandMessage::Quit).unwrap();
-    handle.join().unwrap();
 }
 
 pub fn load_from_json() -> SerializableParameters {
