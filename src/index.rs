@@ -65,7 +65,7 @@ async fn pods(tx_search: Sender<CommandMessage>) {
         for p in x.items {
             let name: String = match p.clone().metadata.name {
                 None => {
-                    return;
+                    continue;
                 }
                 Some(s) => s,
             };
@@ -82,7 +82,7 @@ async fn pods(tx_search: Sender<CommandMessage>) {
                 Ok(c) => c,
                 Err(e) => {
                     println!("{}", e);
-                    return;
+                    continue;
                 }
             };
             logs.split("\n").for_each(|s| {
@@ -96,7 +96,6 @@ async fn pods(tx_search: Sender<CommandMessage>) {
                     Ok(c) => c,
                     Err(e) => {
                         println!("{}", e);
-                        return;
                     }
                 };
             });
