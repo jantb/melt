@@ -86,18 +86,20 @@ async fn pods(tx_search: Sender<CommandMessage>) {
                 }
             };
             logs.split("\n").for_each(|s| {
-                let json = match is_valid_json(s) {
-                    true => s.to_string(),
-                    false => {
-                        json!({"pod": &p.clone().metadata.name.unwrap(), "log": s}).to_string()
-                    }
-                };
-                match tx_search.send(CommandMessage::InsertJson(json)) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        println!("{}", e);
-                    }
-                };
+                if !s.is_empty() {
+                    let json = match is_valid_json(s) {
+                        true => s.to_string(),
+                        false => {
+                            json!({"pod": &p.clone().metadata.name.unwrap(), "log": s}).to_string()
+                        }
+                    };
+                    match tx_search.send(CommandMessage::InsertJson(json)) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            println!("{}", e);
+                        }
+                    };
+                }
             });
         }
     });
