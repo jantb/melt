@@ -74,7 +74,6 @@ async fn pods(tx_search: Sender<CommandMessage>) {
                     &name,
                     &LogParams {
                         follow: false,
-                        tail_lines: Some(1),
                         ..LogParams::default()
                     },
                 )
@@ -87,9 +86,13 @@ async fn pods(tx_search: Sender<CommandMessage>) {
                 }
             };
             logs.split("\n").for_each(|s| {
-                match tx_search.send(CommandMessage::InsertJson(
-                    json!({"pod": &p.clone().metadata.name.unwrap(), "log": s}).to_string(),
-                )) {
+                let json = match is_valid_json(s) {
+                    true => s.to_string(),
+                    false => {
+                        json!({"pod": &p.clone().metadata.name.unwrap(), "log": s}).to_string()
+                    }
+                };
+                match tx_search.send(CommandMessage::InsertJson(json)) {
                     Ok(c) => c,
                     Err(e) => {
                         println!("{}", e);
@@ -99,6 +102,13 @@ async fn pods(tx_search: Sender<CommandMessage>) {
             });
         }
     });
+}
+
+fn is_valid_json(s: &str) -> bool {
+    match serde_json::from_str::<Value>(s) {
+        Ok(_) => true,
+        Err(_) => false,
+    }
 }
 
 fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinHandle<i32> {
