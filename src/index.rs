@@ -46,14 +46,32 @@ pub async fn search_thread(
 
 async fn pods(tx_search: Sender<CommandMessage>) {
     tokio::spawn(async move {
-        let client = Client::try_default().await.unwrap();
+        let client = match Client::try_default().await {
+            Ok(c) => c,
+            Err(e) => {
+                println!("{}", e);
+                return;
+            }
+        };
         let pods: Api<Pod> = Api::default_namespaced(client);
-        let x = pods.list(&ListParams::default()).await.unwrap();
+        let x = match pods.list(&ListParams::default()).await {
+            Ok(c) => c,
+            Err(e) => {
+                println!("{}", e);
+                return;
+            }
+        };
 
         for p in x.items {
-            let logs = pods
+            let name: String = match p.clone().metadata.name {
+                None => {
+                    return;
+                }
+                Some(s) => s,
+            };
+            let logs = match pods
                 .logs(
-                    &p.clone().metadata.name.unwrap(),
+                    &name,
                     &LogParams {
                         follow: false,
                         tail_lines: Some(1),
@@ -61,13 +79,23 @@ async fn pods(tx_search: Sender<CommandMessage>) {
                     },
                 )
                 .await
-                .unwrap();
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    println!("{}", e);
+                    return;
+                }
+            };
             logs.split("\n").for_each(|s| {
-                tx_search
-                    .send(CommandMessage::InsertJson(
-                        json!({"pod": &p.clone().metadata.name.unwrap(), "log": s}).to_string(),
-                    ))
-                    .unwrap();
+                match tx_search.send(CommandMessage::InsertJson(
+                    json!({"pod": &p.clone().metadata.name.unwrap(), "log": s}).to_string(),
+                )) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        println!("{}", e);
+                        return;
+                    }
+                };
             });
         }
     });
