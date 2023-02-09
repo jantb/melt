@@ -226,7 +226,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                                 negative_keys,
                                 limit - result.len(),
                                 |s: &String| {
-                                    !is_match(exact, lowercase_neg, s)
+                                    !is_match(false, lowercase_neg, s)
                                         && is_match(exact, lowercase, s)
                                 },
                                 start,
