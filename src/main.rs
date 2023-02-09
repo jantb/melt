@@ -35,6 +35,7 @@ mod index;
 pub struct GlobalState {
     query: String,
     query_neg: String,
+    label_num: u64,
 }
 
 impl Default for GlobalState {
@@ -42,6 +43,7 @@ impl Default for GlobalState {
         GlobalState {
             query: "".to_string(),
             query_neg: "".to_string(),
+            label_num: 0,
         }
     }
 }

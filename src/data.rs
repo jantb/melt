@@ -84,6 +84,7 @@ impl Default for SerializableParameters {
 #[derive(Clone, Data, Lens, Serialize, Deserialize)]
 pub struct PointerState {
     pub text: String,
+    pub number: u64,
     pub checked: bool,
 }
 
@@ -133,8 +134,6 @@ impl Item {
     }
 
     pub fn click_view(ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
-        let x = &data.text;
-        let string = x.to_string();
-        ctx.submit_command(SET_VIEW.with(string));
+        ctx.submit_command(SET_VIEW.with(data.text.to_string()));
     }
 }

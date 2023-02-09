@@ -32,6 +32,7 @@ pub static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_COUNT_NEW: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_SIZE: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_DATA_SIZE: AtomicU64 = AtomicU64::new(0);
+pub static COUNT_STACK: AtomicU64 = AtomicU64::new(0);
 
 pub async fn search_thread(
     rx_search: Receiver<CommandMessage>,

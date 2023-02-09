@@ -30,8 +30,9 @@ impl AppDelegate<AppState> for Delegate {
                 generate_pointers(&serde_json::from_str(&text.as_str()).unwrap())
                     .iter()
                     .for_each(|v| {
-                        data.pointers.push_front(PointerState {
+                        data.pointers.push_back(PointerState {
                             text: v.to_string(),
+                            number: 0,
                             checked: false,
                         })
                     });
@@ -39,10 +40,17 @@ impl AppDelegate<AppState> for Delegate {
             if data.view_column.is_empty() {
                 data.view = parse_json(text.to_string().as_str());
             } else {
-                let pointer = resolve_pointer(text, data.view_column.as_str());
-                let string = parse_json(pointer.as_str());
-
-                data.view = string
+                let string1 = data.view_column.clone();
+                let split = string1.split(" ").collect::<Vec<&str>>();
+                let string2 = split
+                    .iter()
+                    .map(|s| {
+                        let pointer = resolve_pointer(text, s);
+                        parse_json(pointer.as_str())
+                    })
+                    .collect::<Vec<String>>()
+                    .join(" ");
+                data.view = string2
             }
             Handled::Yes
         } else if let Some(b) = cmd.get(CHANGE_SETTINGS) {
@@ -51,7 +59,8 @@ impl AppDelegate<AppState> for Delegate {
         } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER) {
             data.pointers.iter_mut().for_each(|p| {
                 if p.text == pointer_state.text {
-                    p.checked = pointer_state.checked
+                    p.checked = pointer_state.checked;
+                    p.number = pointer_state.number;
                 }
             });
             Handled::Yes
@@ -62,6 +71,8 @@ impl AppDelegate<AppState> for Delegate {
             data.tx.send(CommandMessage::Clear).unwrap();
             Handled::Yes
         } else if let Some(q) = cmd.get(SEARCH) {
+            let mut pointers = data.pointers.clone();
+            pointers.sort_by(|a, b| a.number.partial_cmp(&b.number).unwrap());
             data.tx
                 .send(CommandMessage::Filter(
                     q.0 .0.to_string(),
@@ -69,7 +80,7 @@ impl AppDelegate<AppState> for Delegate {
                     q.1,
                     data.timelimit as u64,
                     data.viewlimit as usize,
-                    data.pointers.clone(),
+                    pointers,
                 ))
                 .unwrap();
             Handled::Yes
