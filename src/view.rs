@@ -219,7 +219,7 @@ pub fn build_ui() -> impl Widget<AppState> {
                                 GLOBAL_STATE.lock().unwrap().label_num += 1;
                                 pointer_state.number = GLOBAL_STATE.lock().unwrap().label_num;
                             } else {
-                                pointer_state.number = 0;
+                                pointer_state.number = u64::MAX;
                             }
                             ctx.submit_command(
                                 CHECK_CLICKED_FOR_POINTER.with(pointer_state.clone()),

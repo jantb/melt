@@ -32,7 +32,7 @@ impl AppDelegate<AppState> for Delegate {
                     .for_each(|v| {
                         data.pointers.push_back(PointerState {
                             text: v.to_string(),
-                            number: 0,
+                            number: u64::MAX,
                             checked: false,
                         })
                     });
