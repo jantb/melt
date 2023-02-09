@@ -2,10 +2,10 @@ use std::fs;
 
 use clipboard::{ClipboardContext, ClipboardProvider};
 use crossbeam_channel::Sender;
+use druid::im::Vector;
 use druid::Data;
 use druid::Env;
 use druid::EventCtx;
-use druid::im::Vector;
 use druid::Lens;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -17,7 +17,6 @@ use crate::index::CommandMessage;
 pub struct AppState {
     pub query: String,
     pub timelimit: f64,
-    pub index_prob: f64,
     pub viewlimit: f64,
     pub not_query: String,
     pub exact: bool,
@@ -27,7 +26,6 @@ pub struct AppState {
     pub query_time: String,
     pub count: String,
     pub size: String,
-    pub prob: String,
     #[data(ignore)]
     pub indexed_data_in_bytes: u64,
     pub indexed_data_in_bytes_string: String,
@@ -57,7 +55,11 @@ impl AppState {
         SerializableParameters {
             view_column: self.view_column.to_string(),
             indexed_data_in_bytes: self.indexed_data_in_bytes,
-            pointer_state: self.pointers.iter().map(|p| p.clone()).collect::<Vec<PointerState>>(),
+            pointer_state: self
+                .pointers
+                .iter()
+                .map(|p| p.clone())
+                .collect::<Vec<PointerState>>(),
         }
     }
 }
@@ -71,7 +73,11 @@ pub struct SerializableParameters {
 
 impl Default for SerializableParameters {
     fn default() -> Self {
-        SerializableParameters { view_column: "".to_string(), indexed_data_in_bytes: 0, pointer_state: vec![] }
+        SerializableParameters {
+            view_column: "".to_string(),
+            indexed_data_in_bytes: 0,
+            pointer_state: vec![],
+        }
     }
 }
 
@@ -90,7 +96,10 @@ pub struct PointerStateItem {
 
 impl AppState {
     pub fn click_search(ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
-        ctx.submit_command(SEARCH.with(((data.query.to_string(), data.not_query.to_string()), data.exact)));
+        ctx.submit_command(SEARCH.with((
+            (data.query.to_string(), data.not_query.to_string()),
+            data.exact,
+        )));
     }
 }
 

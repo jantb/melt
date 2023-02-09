@@ -63,7 +63,6 @@ async fn main() -> () {
     let state = AppState {
         query: "".to_string(),
         timelimit: 50.0,
-        index_prob: 0.6,
         viewlimit: 500.0,
         not_query: "".to_string(),
         exact: false,
@@ -73,7 +72,6 @@ async fn main() -> () {
         query_time: "".to_string(),
         count: "0".to_string(),
         size: "0".to_string(),
-        prob: "".to_string(),
         indexed_data_in_bytes: parameters.indexed_data_in_bytes,
         indexed_data_in_bytes_string: "".to_string(),
         settings: false,

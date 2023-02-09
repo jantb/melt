@@ -1,5 +1,3 @@
-use std::sync::atomic::Ordering;
-
 use druid::widget::{Checkbox, Container, Controller, Either, LineBreaking, Scroll, Slider, Split};
 use druid::{
     widget::TextBox,
@@ -11,7 +9,6 @@ use crate::data::*;
 use crate::delegate::{
     CHANGE_SETTINGS, CHECK_CLICKED_FOR_POINTER, CLEAR_DB, SEARCH, SET_VIEW_COLUMN,
 };
-use crate::index::{CommandMessage, GLOBAL_COUNT};
 use crate::GLOBAL_STATE;
 
 fn new_search_textbox() -> impl Widget<AppState> {
@@ -57,8 +54,6 @@ impl<W: Widget<AppState>> Controller<AppState, W> for SearchController {
         }
 
         if let Event::KeyUp(_) = event {
-            let prob = (data.index_prob as f32).powi(trigram(data.query.as_str()).len() as i32);
-            data.prob = convert_to_ratio(prob as f64, 1., GLOBAL_COUNT.load(Ordering::SeqCst));
             GLOBAL_STATE.lock().unwrap().query = data.query.to_string();
             GLOBAL_STATE.lock().unwrap().query_neg = data.not_query.to_string();
             ctx.submit_command(SEARCH.with((
@@ -81,8 +76,6 @@ impl<W: Widget<AppState>> Controller<AppState, W> for ControllerForNegSearch {
         env: &Env,
     ) {
         if let Event::KeyUp(_) = event {
-            let prob = (data.index_prob as f32).powi(trigram(data.query.as_str()).len() as i32);
-            data.prob = convert_to_ratio(prob as f64, 1., GLOBAL_COUNT.load(Ordering::SeqCst));
             ctx.submit_command(SEARCH.with((
                 (data.query.to_string(), data.not_query.to_string()),
                 data.exact,
@@ -159,33 +152,6 @@ pub fn build_ui() -> impl Widget<AppState> {
             Label::raw()
                 .with_font(FontDescriptor::new(FontFamily::MONOSPACE))
                 .lens(AppState::indexed_data_in_bytes_string)
-                .align_left(),
-        )
-        .with_child(
-            Label::raw()
-                .with_font(FontDescriptor::new(FontFamily::MONOSPACE))
-                .lens(AppState::prob)
-                .align_left(),
-        )
-        .with_child(
-            Label::dynamic(|value: &AppState, _| format!("Index prob   {:.2}", value.index_prob))
-                .with_font(FontDescriptor::new(FontFamily::MONOSPACE))
-                .align_left(),
-        )
-        .with_child(
-            Slider::new()
-                .with_range(0.01, 0.8)
-                .with_step(0.01)
-                .lens(AppState::index_prob)
-                .align_left(),
-        )
-        .with_child(
-            Button::new("Set index prob")
-                .on_click(|_, data: &mut AppState, _env| {
-                    data.tx
-                        .send(CommandMessage::SetProb(data.index_prob.clone()))
-                        .unwrap();
-                })
                 .align_left(),
         )
         .with_child(

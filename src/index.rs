@@ -159,10 +159,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
         let conn: DBWithThreadMode<SingleThreaded> =
             DBWithThreadMode::open_cf(&opt, path, &["default"]).unwrap();
         let mut index = load_from_json();
-        let prob = index.get_prob();
-        sink.clone().add_idle_callback(move |data: &mut AppState| {
-            data.index_prob = prob;
-        });
+
         GLOBAL_COUNT.store(index.get_size(), Ordering::SeqCst);
         GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
 
