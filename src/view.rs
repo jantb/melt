@@ -7,7 +7,7 @@ use druid::{
 
 use crate::data::*;
 use crate::delegate::{
-    CHANGE_SETTINGS, CHECK_CLICKED_FOR_POINTER, CLEAR_DB, SEARCH, SET_VIEW_COLUMN,
+    CHANGE_SETTINGS, CHECK_CLICKED_FOR_POINTER, CHECK_CLICKED_FOR_POINTER_VIEW, CLEAR_DB, SEARCH,
 };
 use crate::GLOBAL_STATE;
 
@@ -237,11 +237,24 @@ pub fn build_ui() -> impl Widget<AppState> {
         .with_child(Label::new("Select view tag:").padding(8.0).align_left())
         .with_child(
             Scroll::new(List::new(|| {
-                Label::new(|item: &PointerState, _env: &_| format!("{}", item.text)).on_click(
-                    |ctx, item, _env| {
-                        ctx.submit_command(SET_VIEW_COLUMN.with(item.text.to_string()));
-                    },
-                )
+                Flex::row()
+                    .with_child(Checkbox::new("").lens(PointerState::checked_view).on_click(
+                        |ctx, pointer_state, _env| {
+                            pointer_state.checked_view = !pointer_state.checked_view;
+                            if pointer_state.checked_view {
+                                GLOBAL_STATE.lock().unwrap().label_num += 1;
+                                pointer_state.number = GLOBAL_STATE.lock().unwrap().label_num;
+                            } else {
+                                pointer_state.number = u64::MAX;
+                            }
+                            ctx.submit_command(
+                                CHECK_CLICKED_FOR_POINTER_VIEW.with(pointer_state.clone()),
+                            );
+                        },
+                    ))
+                    .with_child(Label::new(|item: &PointerState, _env: &_| {
+                        format!("{}", item.text)
+                    }))
             }))
             .vertical()
             .lens(AppState::pointers)

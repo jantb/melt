@@ -10,7 +10,7 @@ use crate::index::CommandMessage;
 pub const SET_VIEW: Selector<String> = Selector::new("set_view");
 pub const SEARCH: Selector<((String, String), bool)> = Selector::new("search");
 pub const CHECK_CLICKED_FOR_POINTER: Selector<PointerState> = Selector::new("clicked");
-pub const SET_VIEW_COLUMN: Selector<String> = Selector::new("set_view_column");
+pub const CHECK_CLICKED_FOR_POINTER_VIEW: Selector<PointerState> = Selector::new("clicked_view");
 pub const CHANGE_SETTINGS: Selector<bool> = Selector::new("change_setting");
 pub const CLEAR_DB: Selector = Selector::new("clear_db");
 
@@ -33,7 +33,9 @@ impl AppDelegate<AppState> for Delegate {
                         data.pointers.push_back(PointerState {
                             text: v.to_string(),
                             number: u64::MAX,
+                            number_view: u64::MAX,
                             checked: false,
+                            checked_view: false,
                         })
                     });
             }
@@ -64,8 +66,20 @@ impl AppDelegate<AppState> for Delegate {
                 }
             });
             Handled::Yes
-        } else if let Some(param) = cmd.get(SET_VIEW_COLUMN) {
-            data.view_column = param.to_string();
+        } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER_VIEW) {
+            data.pointers.iter_mut().for_each(|p| {
+                if p.text == pointer_state.text {
+                    p.checked_view = pointer_state.checked_view;
+                    p.number_view = pointer_state.number_view;
+                }
+            });
+            let mut vector = data.pointers.clone();
+            vector.sort_by(|a, b| a.number_view.partial_cmp(&b.number_view).unwrap());
+            data.view_column = vector
+                .iter()
+                .map(|s| s.clone().text)
+                .collect::<Vec<String>>()
+                .join(" ");
             Handled::Yes
         } else if let Some(_) = cmd.get(CLEAR_DB) {
             data.tx.send(CommandMessage::Clear).unwrap();

@@ -85,7 +85,9 @@ impl Default for SerializableParameters {
 pub struct PointerState {
     pub text: String,
     pub number: u64,
+    pub number_view: u64,
     pub checked: bool,
+    pub checked_view: bool,
 }
 
 #[derive(Clone, Data, Lens, Serialize, Deserialize)]
