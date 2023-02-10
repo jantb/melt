@@ -152,6 +152,9 @@ fn generate_pointers(json: &Value) -> Vec<String> {
         }
     }
     pointers
+        .into_iter()
+        .filter(|p| p != "/")
+        .collect::<Vec<String>>()
 }
 
 fn parse_json(s: &str) -> String {
