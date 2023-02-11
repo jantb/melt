@@ -2,7 +2,6 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Error, Read};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use std::{fs, thread};
 
@@ -24,6 +23,7 @@ use rocksdb::{
     SingleThreaded, DB,
 };
 use serde_json::{json, Value};
+use tokio::task::{yield_now, JoinHandle};
 use tokio_stream::StreamExt;
 
 use crate::data::{AppState, Item, PointerState};
@@ -39,57 +39,59 @@ pub async fn search_thread(
     rx_search: Receiver<CommandMessage>,
     tx_search: Sender<CommandMessage>,
     sink: ExtEventSink,
-) -> JoinHandle<i32> {
+) -> tokio::task::JoinHandle<i32> {
     socket_listener(tx_search.clone(), sink.clone());
-    let handle = index_tread(rx_search, sink.clone());
-    pods(tx_search).await;
-    handle
+    index_tread(rx_search, tx_search, sink.clone())
 }
 
-async fn pods(tx_search: Sender<CommandMessage>) {
-    tokio::spawn(async move {
-        let client = match Client::try_default().await {
-            Ok(c) => c,
-            Err(e) => {
-                println!("{}", e);
-                return;
+async fn pods(tx_search: Sender<CommandMessage>) -> Vec<JoinHandle<()>> {
+    let mut handles = vec![];
+    let client = match Client::try_default().await {
+        Ok(c) => c,
+        Err(e) => {
+            println!("{}", e);
+            return handles;
+        }
+    };
+    let pods: Api<Pod> = Api::default_namespaced(client);
+    let x = match pods.list(&ListParams::default()).await {
+        Ok(c) => c,
+        Err(e) => {
+            println!("{}", e);
+            return handles;
+        }
+    };
+    for p in x.items {
+        let name: String = match p.clone().metadata.name {
+            None => {
+                continue;
             }
+            Some(s) => s,
         };
-        let pods: Api<Pod> = Api::default_namespaced(client);
-        let x = match pods.list(&ListParams::default()).await {
+        let mut logs = match pods
+            .log_stream(
+                &name,
+                &LogParams {
+                    follow: true,
+                    ..LogParams::default()
+                },
+            )
+            .await
+        {
             Ok(c) => c,
             Err(e) => {
                 println!("{}", e);
-                return;
+                continue;
             }
         };
 
-        for p in x.items {
-            let name: String = match p.clone().metadata.name {
-                None => {
-                    continue;
-                }
-                Some(s) => s,
-            };
-            let mut logs = match pods
-                .log_stream(
-                    &name,
-                    &LogParams {
-                        follow: true,
-                        ..LogParams::default()
-                    },
-                )
-                .await
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    println!("{}", e);
-                    continue;
-                }
-            };
-            let sender = tx_search.clone();
-            tokio::spawn(async move {
-                while let Some(item) = logs.try_next().await.unwrap() {
+        let sender = tx_search.clone();
+        handles.push(tokio::spawn(async move {
+                while let Some(item) = match logs.try_next().await {
+                    Ok(s) => {s}
+                    Err(_) => {return }
+                } {
+                    yield_now().await;
                     let s = String::from_utf8_lossy(&item).to_string();
                     if !s.is_empty() {
                         let json = match is_valid_json(s.trim_end().trim()) {
@@ -97,6 +99,7 @@ async fn pods(tx_search: Sender<CommandMessage>) {
                             false => json!({"pod": &p.clone().metadata.name.unwrap(), "log": s.trim_end().trim()})
                                 .to_string(),
                         };
+                        yield_now().await;
                         match sender.send(CommandMessage::InsertJson(json)) {
                             Ok(c) => c,
                             Err(e) => {
@@ -105,9 +108,9 @@ async fn pods(tx_search: Sender<CommandMessage>) {
                         };
                     }
                 }
-            });
-        }
-    });
+            }));
+    }
+    handles
 }
 
 fn is_valid_json(s: &str) -> bool {
@@ -117,8 +120,12 @@ fn is_valid_json(s: &str) -> bool {
     }
 }
 
-fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinHandle<i32> {
-    thread::spawn(move || {
+fn index_tread(
+    rx_search: Receiver<CommandMessage>,
+    tx_search: Sender<CommandMessage>,
+    sink: ExtEventSink,
+) -> JoinHandle<i32> {
+    tokio::spawn(async move {
         //   let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
         let path = ".melt.db";
 
@@ -167,7 +174,7 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
 
         GLOBAL_COUNT.store(index.get_size(), Ordering::SeqCst);
         GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
-
+        let mut handles = vec![];
         loop {
             match rx_search.recv() {
                 Ok(cm) => {
@@ -256,7 +263,9 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                                 data.ongoing_search = false;
                             });
                         }
+                        CommandMessage::Pod => handles.extend(pods(tx_search.clone()).await),
                         CommandMessage::Quit => {
+                            handles.iter().for_each(|h| h.abort());
                             write_index_to_disk(&index);
                             return 0;
                         }
@@ -411,6 +420,7 @@ pub enum CommandMessage {
     Filter(String, String, bool, u64, usize, Vector<PointerState>),
     Clear,
     Quit,
+    Pod,
     InsertJson(String),
     SetProb(f64),
 }

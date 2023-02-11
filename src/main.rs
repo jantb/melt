@@ -88,7 +88,7 @@ async fn main() -> () {
         .launch(state)
         .expect("Failed to launch application");
     tx_search.send(CommandMessage::Quit).unwrap();
-    handle.join().unwrap();
+    handle.await.unwrap();
 }
 
 pub fn load_from_json() -> SerializableParameters {

@@ -12,6 +12,7 @@ use crate::data::*;
 use crate::delegate::{
     CHANGE_SETTINGS, CHECK_CLICKED_FOR_POINTER, CHECK_CLICKED_FOR_POINTER_VIEW, CLEAR_DB, SEARCH,
 };
+use crate::index::CommandMessage;
 use crate::GLOBAL_STATE;
 
 fn new_search_textbox() -> impl Widget<AppState> {
@@ -124,6 +125,14 @@ pub fn build_ui() -> impl Widget<AppState> {
                         .on_click(|ctx, data: &mut AppState, _env| {
                             ctx.submit_command(CHANGE_SETTINGS.with(!data.settings));
                             ctx.request_update()
+                        })
+                        .align_left(),
+                )
+                .with_child(
+                    Button::new("Pods")
+                        .on_click(|ctx, data: &mut AppState, _env| {
+                            data.tx.send(CommandMessage::Pod).unwrap();
+                            ctx.set_disabled(true);
                         })
                         .align_left(),
                 )
