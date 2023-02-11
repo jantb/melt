@@ -1,8 +1,11 @@
-use druid::widget::{Checkbox, Container, Controller, Either, LineBreaking, Scroll, Slider, Split};
+use druid::widget::{
+    Checkbox, Container, Controller, Either, LineBreaking, Painter, Scroll, Slider, Split,
+};
 use druid::{
+    theme,
     widget::TextBox,
     widget::{Button, Flex, Label, List},
-    Env, Event, EventCtx, FontDescriptor, FontFamily, Widget, WidgetExt,
+    Color, Env, Event, EventCtx, FontDescriptor, FontFamily, RenderContext, Widget, WidgetExt,
 };
 
 use crate::data::*;
@@ -87,10 +90,25 @@ impl<W: Widget<AppState>> Controller<AppState, W> for ControllerForNegSearch {
 }
 
 fn documents() -> impl Widget<Item> {
+    let painter = Painter::new(|ctx, _, env| {
+        let bounds = ctx.size().to_rect();
+
+        ctx.fill(bounds, &env.get(theme::BACKGROUND_LIGHT));
+
+        if ctx.is_hot() {
+            ctx.stroke(bounds.inset(-0.5), &Color::WHITE, 1.0);
+        }
+
+        if ctx.is_active() {
+            ctx.fill(bounds, &Color::rgb8(0x71, 0x71, 0x71));
+        }
+    });
+
     let label = Label::dynamic(|value: &Item, _| format!("{}", value.view))
         .with_font(FontDescriptor::new(FontFamily::MONOSPACE))
         .with_line_break_mode(LineBreaking::Clip)
         .expand_width()
+        .background(painter)
         .on_click(Item::click_view);
 
     Flex::row().with_flex_child(label, 1.)
@@ -185,7 +203,6 @@ pub fn build_ui() -> impl Widget<AppState> {
             )
             .vertical(),
         )
-        .min_size(700., 1000.)
         .split_point(0.2)
         .draggable(true)
         .solid_bar(true),

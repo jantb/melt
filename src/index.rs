@@ -236,16 +236,19 @@ fn index_tread(rx_search: Receiver<CommandMessage>, sink: ExtEventSink) -> JoinH
                             let res_size = result.len();
                             let query_time = format!("Index        {:?}\nIndex hits   {}\nRetrieve     {:?}\nResults      {}", duration_index, index_hits.to_formatted_string(&Locale::en), duration_db, res_size.to_formatted_string(&Locale::en));
 
-                            let mut items: Vector<_> = result
-                                .iter()
-                                .take(limit)
-                                .map(|m| Item::new(m.as_str()))
-                                .collect();
+                            let mut items: Box<Vector<_>> = Box::new(
+                                result
+                                    .iter()
+                                    .take(limit)
+                                    .map(|m| Item::new(m.as_str()))
+                                    .collect(),
+                            );
+
                             sort_and_resolve(&mut items, &pointer_state);
 
                             sink.add_idle_callback(move |data: &mut AppState| {
                                 data.query_time = query_time.clone();
-                                data.items = items.clone();
+                                data.items = *items;
                                 data.ongoing_search = false;
                             });
                         }
@@ -422,7 +425,7 @@ pub fn load_from_json() -> SearchIndex {
     }
 }
 
-fn resolve_pointers(items: &mut Vector<Item>, pointer_state: &Vector<PointerState>) -> bool {
+fn resolve_pointers(items: &mut Box<Vector<Item>>, pointer_state: &Vector<PointerState>) -> bool {
     let mut empty_pointer: bool = true;
     pointer_state.iter().for_each(|ps| {
         if ps.checked {
@@ -436,19 +439,12 @@ fn resolve_pointers(items: &mut Vector<Item>, pointer_state: &Vector<PointerStat
     empty_pointer.clone()
 }
 
-fn sort_and_resolve(items: &mut Vector<Item>, pointer_state: &Vector<PointerState>) {
+fn sort_and_resolve(items: &mut Box<Vector<Item>>, pointer_state: &Vector<PointerState>) {
     if !resolve_pointers(items, pointer_state) {
-        items.sort_by(|left, right| {
-            right
-                .pointers
-                .first()
-                .unwrap_or(&"".to_string())
-                .cmp(left.pointers.first().unwrap_or(&"".to_string()))
-        });
-
         items
             .iter_mut()
             .for_each(|item| item.view = item.pointers.join(" "));
+        items.sort_by(|left, right| right.view.cmp(&left.view));
     } else {
         items.iter_mut().for_each(|i| i.view = i.text.to_string())
     }
