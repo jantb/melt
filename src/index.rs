@@ -24,6 +24,7 @@ use rocksdb::{
     SingleThreaded, DB,
 };
 use serde_json::{json, Value};
+use tokio_stream::StreamExt;
 
 use crate::data::{AppState, Item, PointerState};
 use crate::GLOBAL_STATE;
@@ -70,11 +71,11 @@ async fn pods(tx_search: Sender<CommandMessage>) {
                 }
                 Some(s) => s,
             };
-            let logs = match pods
-                .logs(
+            let mut logs = match pods
+                .log_stream(
                     &name,
                     &LogParams {
-                        follow: false,
+                        follow: true,
                         ..LogParams::default()
                     },
                 )
@@ -86,20 +87,23 @@ async fn pods(tx_search: Sender<CommandMessage>) {
                     continue;
                 }
             };
-            logs.split("\n").for_each(|s| {
-                if !s.is_empty() {
-                    let json = match is_valid_json(s) {
-                        true => s.to_string(),
-                        false => {
-                            json!({"pod": &p.clone().metadata.name.unwrap(), "log": s}).to_string()
-                        }
-                    };
-                    match tx_search.send(CommandMessage::InsertJson(json)) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            println!("{}", e);
-                        }
-                    };
+            let sender = tx_search.clone();
+            tokio::spawn(async move {
+                while let Some(item) = logs.try_next().await.unwrap() {
+                    let s = String::from_utf8_lossy(&item).to_string();
+                    if !s.is_empty() {
+                        let json = match is_valid_json(s.trim_end().trim()) {
+                            true => s.trim_end().trim().to_string(),
+                            false => json!({"pod": &p.clone().metadata.name.unwrap(), "log": s.trim_end().trim()})
+                                .to_string(),
+                        };
+                        match sender.send(CommandMessage::InsertJson(json)) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                println!("{}", e);
+                            }
+                        };
+                    }
                 }
             });
         }
