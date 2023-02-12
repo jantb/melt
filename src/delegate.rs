@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
+use std::ops::RangeBounds;
 
-use druid::{AppDelegate, Command, DelegateCtx, Env, Handled, Selector, Target};
+use druid::text::RichTextBuilder;
+use druid::{AppDelegate, Color, Command, DelegateCtx, Env, Handled, Selector, Target};
 use jsonptr::{Pointer, ResolveMut};
 use serde_json::Value;
 
@@ -12,6 +14,7 @@ pub const SEARCH: Selector<((String, String), bool)> = Selector::new("search");
 pub const CHECK_CLICKED_FOR_POINTER: Selector<PointerState> = Selector::new("clicked");
 pub const CHECK_CLICKED_FOR_POINTER_VIEW: Selector<PointerState> = Selector::new("clicked_view");
 pub const CHANGE_SETTINGS: Selector<bool> = Selector::new("change_setting");
+pub const SEARCH_RESULT: Selector = Selector::new("search_result");
 pub const CLEAR_DB: Selector = Selector::new("clear_db");
 
 pub struct Delegate;
@@ -57,6 +60,26 @@ impl AppDelegate<AppState> for Delegate {
             Handled::Yes
         } else if let Some(b) = cmd.get(CHANGE_SETTINGS) {
             data.settings = *b;
+            Handled::Yes
+        } else if let Some(_) = cmd.get(SEARCH_RESULT) {
+            for x in data.items.clone() {
+                let mut builder = RichTextBuilder::new();
+                builder.push(x.view.as_str());
+                if data.exact {
+                    let ranges = find_all_ranges(x.view.as_str(), data.query.as_str());
+
+                    for r in ranges {
+                        if r.is_match {
+                            builder
+                                .add_attributes_for_range(r.range)
+                                .text_color(Color::rgba8(255, 0, 0, 0));
+                        }
+                    }
+                } else {
+                    builder.push(x.view.as_str());
+                }
+            }
+
             Handled::Yes
         } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER) {
             data.pointers.iter_mut().for_each(|p| {
@@ -155,6 +178,41 @@ fn generate_pointers(json: &Value) -> Vec<String> {
         .into_iter()
         .filter(|p| p != "/")
         .collect::<Vec<String>>()
+}
+
+struct MatchRange<R: RangeBounds<usize>> {
+    range: R,
+    is_match: bool,
+}
+
+fn find_all_ranges(s: &str, word: &str) -> Vec<MatchRange<std::ops::Range<usize>>> {
+    let mut results = vec![];
+
+    let mut start = 0;
+    let mut i = 0;
+    while let Some(j) = s[i..].find(word) {
+        results.push(MatchRange {
+            range: start..(i + j),
+            is_match: false,
+        });
+
+        start = i + j;
+        i = start + word.len();
+
+        results.push(MatchRange {
+            range: start..i,
+            is_match: true,
+        });
+    }
+
+    if start < s.len() {
+        results.push(MatchRange {
+            range: start..s.len(),
+            is_match: false,
+        });
+    }
+
+    results
 }
 
 fn parse_json(s: &str) -> String {

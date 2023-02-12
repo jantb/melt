@@ -1,8 +1,8 @@
 use std::fs;
 
-use clipboard::{ClipboardContext, ClipboardProvider};
 use crossbeam_channel::Sender;
 use druid::im::Vector;
+use druid::text::RichText;
 use druid::Data;
 use druid::Env;
 use druid::EventCtx;
@@ -21,6 +21,7 @@ pub struct AppState {
     pub not_query: String,
     pub exact: bool,
     pub items: Vector<Item>,
+    pub items_rich: Vector<RichText>,
     pub view: String,
     pub pointers: Vector<PointerState>,
     pub query_time: String,
@@ -129,10 +130,6 @@ impl Item {
             pointer_states: vec![],
             view: "".to_string(),
         }
-    }
-    pub fn click_copy(_ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
-        let mut ctx: ClipboardContext = ClipboardProvider::new().unwrap();
-        ctx.set_contents(data.text.clone().to_string()).unwrap();
     }
 
     pub fn click_view(ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
