@@ -75,7 +75,6 @@ async fn pods(tx_search: Sender<CommandMessage>) -> Vec<JoinHandle<()>> {
                 &name,
                 &LogParams {
                     follow: true,
-                    limit_bytes: Some(10 * 1024 * 1024),
                     ..LogParams::default()
                 },
             )
@@ -91,15 +90,22 @@ async fn pods(tx_search: Sender<CommandMessage>) -> Vec<JoinHandle<()>> {
         let sender = tx_search.clone();
         handles.push(tokio::spawn(async move {
                 sleep(Duration::from_millis(5000)).await;
+            let mut buff = String::new();
                 while let Some(item) = match logs.try_next().await {
                     Ok(s) => {s}
                     Err(_) => {return }
                 } {
 
                     let s = String::from_utf8_lossy(&item).to_string();
-                    if !s.is_empty() {
-                        let json = match is_valid_json(s.trim_end().trim()) {
-                            true => s.trim_end().trim().to_string(),
+                    buff.push_str(&s);
+                    if !s.ends_with("\n") {
+                        continue
+                    }
+                    let line = buff.clone();
+                    buff = String::new();
+                    if !line.is_empty() {
+                        let json = match is_valid_json(line.trim_end().trim()) {
+                            true => line.trim_end().trim().to_string(),
                             false => json!({"pod": &p.clone().metadata.name.unwrap(), "log": s.trim_end().trim()})
                                 .to_string(),
                         };
