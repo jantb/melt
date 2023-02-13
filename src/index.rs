@@ -24,6 +24,7 @@ use rocksdb::{
 };
 use serde_json::{json, Value};
 use tokio::task::{yield_now, JoinHandle};
+use tokio::time::sleep;
 use tokio_stream::StreamExt;
 
 use crate::data::{AppState, Item, PointerState};
@@ -88,6 +89,7 @@ async fn pods(tx_search: Sender<CommandMessage>) -> Vec<JoinHandle<()>> {
 
         let sender = tx_search.clone();
         handles.push(tokio::spawn(async move {
+                sleep(Duration::from_millis(5000)).await;
                 while let Some(item) = match logs.try_next().await {
                     Ok(s) => {s}
                     Err(_) => {return }
