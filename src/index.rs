@@ -41,7 +41,7 @@ pub async fn search_thread(
     rx_search: Receiver<CommandMessage>,
     tx_search: Sender<CommandMessage>,
     sink: ExtEventSink,
-) -> tokio::task::JoinHandle<i32> {
+) -> JoinHandle<i32> {
     socket_listener(tx_search.clone(), sink.clone());
     index_tread(rx_search, tx_search, sink.clone())
 }
@@ -221,12 +221,6 @@ fn index_tread(
                                 positive_keys.retain(|x| !set_neg.contains(x));
                             }
 
-                            let string = query.to_lowercase();
-                            let lowercase = string.as_str();
-
-                            let string_neg = neg_query.to_lowercase();
-                            let lowercase_neg = string_neg.as_str();
-
                             let index_hits = positive_keys.len() + negative_keys.len();
 
                             time -= duration_index.as_millis();
@@ -234,7 +228,7 @@ fn index_tread(
                             let mut result = search(
                                 positive_keys,
                                 limit,
-                                |s: &String| is_match(exact, lowercase, s),
+                                |s: &String| is_match(exact, &query.to_lowercase(), s),
                                 start,
                                 time,
                                 &conn,
@@ -244,8 +238,8 @@ fn index_tread(
                                 negative_keys,
                                 limit - result.len(),
                                 |s: &String| {
-                                    !is_match(false, lowercase_neg, s)
-                                        && is_match(exact, lowercase, s)
+                                    !is_match(false, &neg_query.to_lowercase(), s)
+                                        && is_match(exact, &query.to_lowercase(), s)
                                 },
                                 start,
                                 time,
@@ -343,11 +337,12 @@ fn search(
         .collect::<Vec<String>>()
 }
 
-fn is_match(exact: bool, lowercase: &str, s: &str) -> bool {
+fn is_match(exact: bool, needle: &str, s: &str) -> bool {
+    let haystack = s.to_lowercase();
     if exact {
-        s.to_lowercase().contains(lowercase)
+        haystack.contains(needle)
     } else {
-        lowercase.split(" ").all(|q| s.to_lowercase().contains(q))
+        needle.split(" ").all(|part| haystack.contains(part))
     }
 }
 
@@ -469,10 +464,10 @@ fn sort_and_resolve(items: &mut Box<Vector<Item>>, pointer_state: &Vector<Pointe
         items
             .iter_mut()
             .for_each(|item| item.view = item.pointers.join(" "));
-        items.sort_by(|left, right| right.view.cmp(&left.view));
     } else {
         items.iter_mut().for_each(|i| i.view = i.text.to_string())
     }
+    items.sort_by(|left, right| left.view.cmp(&right.view));
 }
 
 fn resolve_pointer(text: &str, ps: &str) -> String {

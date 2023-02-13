@@ -141,12 +141,20 @@ impl Delegate {
         for r in ranges {
             if r.is_match {
                 builder
-                    .push(r.string.as_str())
+                    .push(
+                        String::from_utf8_lossy(r.string.as_slice())
+                            .to_string()
+                            .as_str(),
+                    )
                     .weight(FontWeight::new(1000))
                     .text_color(Color::rgb8(255, 180, 90));
             } else {
                 builder
-                    .push(r.string.as_str())
+                    .push(
+                        String::from_utf8_lossy(r.string.as_slice())
+                            .to_string()
+                            .as_str(),
+                    )
                     .weight(FontWeight::THIN)
                     .text_color(Color::rgb8(150, 150, 150));
             }
@@ -207,17 +215,16 @@ fn generate_pointers(json: &Value) -> Vec<String> {
         .collect::<Vec<String>>()
 }
 struct MatchRange {
-    string: String,
+    string: Vec<u8>,
     is_match: bool,
 }
 
 fn find_all_ranges(s: &str, words: &[&str]) -> Vec<MatchRange> {
     let mut results = vec![];
-    let mut zero_array: Vec<_> = (0..s.chars().count()).map(|_| false).collect();
-
+    let mut zero_array: Vec<_> = (0..s.len()).map(|_| false).collect();
+    let s = s.to_lowercase();
     for word in words {
         for (start, end) in s
-            .to_lowercase()
             .match_indices(&word.to_lowercase())
             .map(|(start, matched)| (start, start + matched.len()))
         {
@@ -229,21 +236,21 @@ fn find_all_ranges(s: &str, words: &[&str]) -> Vec<MatchRange> {
 
     let mut last_was_match = false;
     let mut current_range = MatchRange {
-        string: String::new(),
+        string: vec![],
         is_match: false,
     };
-    let arr = s.chars().collect::<Vec<char>>();
+    let string_bytes = s.as_bytes();
     for (n, &is_match) in zero_array.iter().enumerate() {
-        let c = arr.get(n).unwrap();
+        let c = string_bytes[n];
         if is_match != last_was_match {
             results.push(current_range);
             current_range = MatchRange {
-                string: c.to_string(),
+                string: vec![c],
                 is_match,
             };
             last_was_match = is_match;
         } else {
-            current_range.string.push(*c);
+            current_range.string.push(c);
         }
     }
     results.push(current_range);
