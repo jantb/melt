@@ -8,7 +8,7 @@ use std::{fs, thread};
 use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
 use druid::im::Vector;
-use druid::ExtEventSink;
+use druid::{ExtEventSink, Target};
 use fnv::FnvHashSet;
 use human_bytes::human_bytes;
 use jsonptr::{Pointer, ResolveMut};
@@ -27,6 +27,7 @@ use tokio::task::{yield_now, JoinHandle};
 use tokio_stream::StreamExt;
 
 use crate::data::{AppState, Item, PointerState};
+use crate::delegate::SEARCH_RESULT;
 use crate::GLOBAL_STATE;
 
 pub static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -262,6 +263,8 @@ fn index_tread(
                                 data.items = *items;
                                 data.ongoing_search = false;
                             });
+                            sink.submit_command(SEARCH_RESULT, (), Target::Auto)
+                                .unwrap();
                         }
                         CommandMessage::Pod => handles.extend(pods(tx_search.clone()).await),
                         CommandMessage::Quit => {

@@ -1,5 +1,5 @@
 use druid::widget::{
-    Checkbox, Container, Controller, Either, LineBreaking, Painter, Scroll, Slider, Split,
+    Checkbox, Container, Controller, Either, LineBreaking, Painter, RawLabel, Scroll, Slider, Split,
 };
 use druid::{
     theme,
@@ -90,11 +90,11 @@ impl<W: Widget<AppState>> Controller<AppState, W> for ControllerForNegSearch {
     }
 }
 
-fn documents() -> impl Widget<Item> {
+fn documents() -> impl Widget<ItemRich> {
     let painter = Painter::new(|ctx, _, env| {
         let bounds = ctx.size().to_rect();
 
-        ctx.fill(bounds, &env.get(theme::BACKGROUND_LIGHT));
+        ctx.fill(bounds, &env.get(theme::BACKGROUND_DARK));
 
         if ctx.is_hot() {
             ctx.stroke(bounds.inset(-0.5), &Color::WHITE, 1.0);
@@ -105,18 +105,17 @@ fn documents() -> impl Widget<Item> {
         }
     });
 
-    let label = Label::dynamic(|value: &Item, _| format!("{}", value.view))
+    let label = RawLabel::new()
         .with_font(FontDescriptor::new(FontFamily::MONOSPACE))
-        .with_line_break_mode(LineBreaking::Clip)
+        .with_line_break_mode(LineBreaking::WordWrap)
         .expand_width()
         .background(painter)
-        .on_click(Item::click_view);
-
-    Flex::row().with_flex_child(label, 1.)
+        .on_click(ItemRich::click_view);
+    label
 }
 
 pub fn build_ui() -> impl Widget<AppState> {
-    let items = List::new(documents).lens(AppState::items);
+    let items = List::new(documents).lens(AppState::items_rich);
     let flex = Flex::column()
         .with_child(
             Flex::row()

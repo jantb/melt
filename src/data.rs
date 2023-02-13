@@ -2,13 +2,13 @@ use std::fs;
 
 use crossbeam_channel::Sender;
 use druid::im::Vector;
-use druid::text::RichText;
+use druid::piet::{PietTextLayoutBuilder, TextStorage as PietTextStorage};
+use druid::text::{RichText, TextStorage};
 use druid::Data;
 use druid::Env;
 use druid::EventCtx;
 use druid::Lens;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::delegate::{SEARCH, SET_VIEW};
 use crate::index::CommandMessage;
@@ -21,7 +21,7 @@ pub struct AppState {
     pub not_query: String,
     pub exact: bool,
     pub items: Vector<Item>,
-    pub items_rich: Vector<RichText>,
+    pub items_rich: Vector<ItemRich>,
     pub view: String,
     pub pointers: Vector<PointerState>,
     pub query_time: String,
@@ -109,9 +109,6 @@ impl AppState {
 
 #[derive(Clone, Data, Lens)]
 pub struct Item {
-    #[data(same_fn = "PartialEq::eq")]
-    pub id: Uuid,
-    pub done: bool,
     pub text: String,
     #[data(ignore)]
     pub pointers: Vec<String>,
@@ -120,11 +117,31 @@ pub struct Item {
     pub view: String,
 }
 
+#[derive(Clone, Data, Lens)]
+pub struct ItemRich {
+    pub text: RichText,
+    #[data(ignore)]
+    pub pointers: Vec<String>,
+    #[data(ignore)]
+    pub pointer_states: Vec<PointerStateItem>,
+    pub view: String,
+}
+
+impl PietTextStorage for ItemRich {
+    fn as_str(&self) -> &str {
+        self.text.as_str()
+    }
+}
+
+impl TextStorage for ItemRich {
+    fn add_attributes(&self, builder: PietTextLayoutBuilder, env: &Env) -> PietTextLayoutBuilder {
+        self.text.add_attributes(builder, env)
+    }
+}
+
 impl Item {
     pub fn new(text: &str) -> Self {
         Self {
-            id: Uuid::new_v4(),
-            done: false,
             text: text.into(),
             pointers: Default::default(),
             pointer_states: vec![],
@@ -134,5 +151,10 @@ impl Item {
 
     pub fn click_view(ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
         ctx.submit_command(SET_VIEW.with(data.text.to_string()));
+    }
+}
+impl ItemRich {
+    pub fn click_view(ctx: &mut EventCtx, data: &mut Self, _env: &Env) {
+        ctx.submit_command(SET_VIEW.with(data.text.as_str().to_string()));
     }
 }

@@ -1,12 +1,12 @@
 use std::collections::VecDeque;
-use std::ops::RangeBounds;
 
+use druid::im::Vector;
 use druid::text::RichTextBuilder;
-use druid::{AppDelegate, Color, Command, DelegateCtx, Env, Handled, Selector, Target};
+use druid::{AppDelegate, Color, Command, DelegateCtx, Env, FontWeight, Handled, Selector, Target};
 use jsonptr::{Pointer, ResolveMut};
 use serde_json::Value;
 
-use crate::data::{AppState, PointerState};
+use crate::data::{AppState, ItemRich, PointerState};
 use crate::index::CommandMessage;
 
 pub const SET_VIEW: Selector<String> = Selector::new("set_view");
@@ -62,24 +62,36 @@ impl AppDelegate<AppState> for Delegate {
             data.settings = *b;
             Handled::Yes
         } else if let Some(_) = cmd.get(SEARCH_RESULT) {
+            let mut vec1 = vec![];
             for x in data.items.clone() {
                 let mut builder = RichTextBuilder::new();
-                builder.push(x.view.as_str());
-                if data.exact {
-                    let ranges = find_all_ranges(x.view.as_str(), data.query.as_str());
-
-                    for r in ranges {
-                        if r.is_match {
-                            builder
-                                .add_attributes_for_range(r.range)
-                                .text_color(Color::rgba8(255, 0, 0, 0));
-                        }
-                    }
+                if data.exact && !data.query.is_empty() {
+                    let ranges = find_all_ranges(
+                        x.view.as_str(),
+                        vec![data.query.to_lowercase().as_str()].as_slice(),
+                    );
+                    Self::highligt(&mut builder, ranges)
+                } else if !data.query.is_empty() {
+                    let ranges = find_all_ranges(
+                        x.view.as_str(),
+                        data.query
+                            .to_lowercase()
+                            .split_whitespace()
+                            .collect::<Vec<&str>>()
+                            .as_slice(),
+                    );
+                    Self::highligt(&mut builder, ranges)
                 } else {
                     builder.push(x.view.as_str());
                 }
+                vec1.push(ItemRich {
+                    text: builder.build(),
+                    pointers: x.pointers,
+                    pointer_states: x.pointer_states,
+                    view: x.view,
+                })
             }
-
+            data.items_rich = Vector::from(vec1);
             Handled::Yes
         } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER) {
             data.pointers.iter_mut().for_each(|p| {
@@ -123,6 +135,24 @@ impl AppDelegate<AppState> for Delegate {
             Handled::Yes
         } else {
             Handled::No
+        }
+    }
+}
+
+impl Delegate {
+    fn highligt(builder: &mut RichTextBuilder, ranges: Vec<MatchRange>) {
+        for r in ranges {
+            if r.is_match {
+                builder
+                    .push(r.string.as_str())
+                    .weight(FontWeight::new(1000))
+                    .text_color(Color::rgb8(255, 180, 90));
+            } else {
+                builder
+                    .push(r.string.as_str())
+                    .weight(FontWeight::THIN)
+                    .text_color(Color::rgb8(150, 150, 150));
+            }
         }
     }
 }
@@ -179,38 +209,46 @@ fn generate_pointers(json: &Value) -> Vec<String> {
         .filter(|p| p != "/")
         .collect::<Vec<String>>()
 }
-
-struct MatchRange<R: RangeBounds<usize>> {
-    range: R,
+struct MatchRange {
+    string: String,
     is_match: bool,
 }
 
-fn find_all_ranges(s: &str, word: &str) -> Vec<MatchRange<std::ops::Range<usize>>> {
+fn find_all_ranges(s: &str, words: &[&str]) -> Vec<MatchRange> {
     let mut results = vec![];
+    let mut zero_array: Vec<_> = (0..s.chars().count()).map(|_| false).collect();
 
-    let mut start = 0;
-    let mut i = 0;
-    while let Some(j) = s[i..].find(word) {
-        results.push(MatchRange {
-            range: start..(i + j),
-            is_match: false,
-        });
-
-        start = i + j;
-        i = start + word.len();
-
-        results.push(MatchRange {
-            range: start..i,
-            is_match: true,
-        });
+    for word in words {
+        for (start, end) in s
+            .match_indices(word)
+            .map(|(start, matched)| (start, start + matched.len()))
+        {
+            for x in start..end {
+                zero_array[x] = true
+            }
+        }
     }
 
-    if start < s.len() {
-        results.push(MatchRange {
-            range: start..s.len(),
-            is_match: false,
-        });
+    let mut last_was_match = false;
+    let mut current_range = MatchRange {
+        string: String::new(),
+        is_match: false,
+    };
+    let arr = s.chars().collect::<Vec<char>>();
+    for (n, &is_match) in zero_array.iter().enumerate() {
+        let c = arr.get(n).unwrap();
+        if is_match != last_was_match {
+            results.push(current_range);
+            current_range = MatchRange {
+                string: c.to_string(),
+                is_match,
+            };
+            last_was_match = is_match;
+        } else {
+            current_range.string.push(*c);
+        }
     }
+    results.push(current_range);
 
     results
 }
