@@ -75,6 +75,7 @@ async fn pods(tx_search: Sender<CommandMessage>) -> Vec<JoinHandle<()>> {
                 &name,
                 &LogParams {
                     follow: true,
+                    limit_bytes: None,
                     ..LogParams::default()
                 },
             )
@@ -94,7 +95,6 @@ async fn pods(tx_search: Sender<CommandMessage>) -> Vec<JoinHandle<()>> {
                     Ok(s) => {s}
                     Err(_) => {return }
                 } {
-                    yield_now().await;
                     let s = String::from_utf8_lossy(&item).to_string();
                     if !s.is_empty() {
                         let json = match is_valid_json(s.trim_end().trim()) {
@@ -102,7 +102,6 @@ async fn pods(tx_search: Sender<CommandMessage>) -> Vec<JoinHandle<()>> {
                             false => json!({"pod": &p.clone().metadata.name.unwrap(), "log": s.trim_end().trim()})
                                 .to_string(),
                         };
-                        yield_now().await;
                         match sender.send(CommandMessage::InsertJson(json)) {
                             Ok(c) => c,
                             Err(e) => {

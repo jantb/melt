@@ -66,16 +66,13 @@ impl AppDelegate<AppState> for Delegate {
             for x in data.items.clone() {
                 let mut builder = RichTextBuilder::new();
                 if data.exact && !data.query.is_empty() {
-                    let ranges = find_all_ranges(
-                        x.view.as_str(),
-                        vec![data.query.to_lowercase().as_str()].as_slice(),
-                    );
+                    let ranges =
+                        find_all_ranges(x.view.as_str(), vec![data.query.as_str()].as_slice());
                     Self::highligt(&mut builder, ranges)
                 } else if !data.query.is_empty() {
                     let ranges = find_all_ranges(
                         x.view.as_str(),
                         data.query
-                            .to_lowercase()
                             .split_whitespace()
                             .collect::<Vec<&str>>()
                             .as_slice(),
@@ -220,7 +217,8 @@ fn find_all_ranges(s: &str, words: &[&str]) -> Vec<MatchRange> {
 
     for word in words {
         for (start, end) in s
-            .match_indices(word)
+            .to_lowercase()
+            .match_indices(&word.to_lowercase())
             .map(|(start, matched)| (start, start + matched.len()))
         {
             for x in start..end {
