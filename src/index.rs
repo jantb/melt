@@ -23,7 +23,7 @@ use rocksdb::{
     SingleThreaded, DB,
 };
 use serde_json::{json, Value};
-use tokio::task::{yield_now, JoinHandle};
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio_stream::StreamExt;
 
