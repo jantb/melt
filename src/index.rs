@@ -9,15 +9,16 @@ use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
 use druid::im::Vector;
 use druid::{ExtEventSink, Target};
-use fnv::FnvHashSet;
+use fnv::{FnvHashMap, FnvHashSet};
 use human_bytes::human_bytes;
 use jsonptr::{Pointer, ResolveMut};
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{ListParams, LogParams};
 use kube::{Api, Client};
+use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
-use melt_rs::{get_search_index, get_search_index_with_prob};
 use num_format::{Locale, ToFormattedString};
+use rayon::prelude::ParallelSliceMut;
 use rocksdb::{
     BlockBasedOptions, Cache, DBCompactionStyle, DBCompressionType, DBWithThreadMode, Options,
     SingleThreaded, DB,
@@ -183,6 +184,9 @@ fn index_tread(
 
         GLOBAL_COUNT.store(index.get_size(), Ordering::SeqCst);
         GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
+
+        let mut sortmap: FnvHashMap<usize, String> = FnvHashMap::default();
+
         let mut handles = vec![];
         loop {
             match rx_search.recv() {
@@ -195,6 +199,7 @@ fn index_tread(
                             time,
                             limit,
                             pointer_state,
+                            sort,
                         ) => {
                             let mut time = time as u128;
                             if GLOBAL_STATE.lock().unwrap().query != query
@@ -220,7 +225,14 @@ fn index_tread(
                                 negative_keys.retain(|x| set.contains(x));
                                 positive_keys.retain(|x| !set_neg.contains(x));
                             }
-
+                            if sort {
+                                positive_keys.par_sort_unstable_by(|left, right| {
+                                    sortmap
+                                        .get(&right)
+                                        .partial_cmp(&sortmap.get(&left))
+                                        .unwrap()
+                                });
+                            }
                             let index_hits = positive_keys.len() + negative_keys.len();
 
                             time -= duration_index.as_millis();
@@ -258,7 +270,7 @@ fn index_tread(
                                     .collect(),
                             );
 
-                            sort_and_resolve(&mut items, &pointer_state);
+                            resolve(&mut items, &pointer_state);
 
                             sink.add_idle_callback(move |data: &mut AppState| {
                                 data.query_time = query_time.clone();
@@ -283,24 +295,17 @@ fn index_tread(
                             if key % 100000 == 0 {
                                 GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
                             };
-                        }
 
-                        CommandMessage::SetProb(prob) => {
-                            let size = index.get_size();
-                            index = get_search_index_with_prob(prob);
-                            for x in 1..size {
-                                let result1 = conn.get(x.to_le_bytes()).unwrap().unwrap();
-                                let i = index
-                                    .add(String::from_utf8_lossy(&result1).to_string().as_str());
-                                if i % 10000 == 0 {
-                                    GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
-                                    GLOBAL_COUNT_NEW.store(i, Ordering::SeqCst);
+                            match resolve_pointer_some(&cm, &GLOBAL_STATE.lock().unwrap().sort) {
+                                None => {}
+                                Some(p) => {
+                                    sortmap.insert(key, p);
                                 }
-                            }
-                            GLOBAL_COUNT_NEW.store(0, Ordering::SeqCst);
+                            };
                         }
 
                         CommandMessage::Clear => {
+                            sortmap.clear();
                             index.clear();
                             GLOBAL_SIZE.store(0, Ordering::SeqCst);
                             GLOBAL_COUNT.store(0, Ordering::SeqCst);
@@ -326,7 +331,6 @@ fn search(
     conn: &DBWithThreadMode<SingleThreaded>,
 ) -> Vec<String> {
     keys.iter()
-        .rev()
         .take_while(|_| start.elapsed().as_millis() < time)
         .map(|x| {
             String::from_utf8_lossy(&conn.get(x.to_le_bytes().to_vec()).unwrap().unwrap())
@@ -423,12 +427,11 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
 
 #[derive(Clone)]
 pub enum CommandMessage {
-    Filter(String, String, bool, u64, usize, Vector<PointerState>),
+    Filter(String, String, bool, u64, usize, Vector<PointerState>, bool),
     Clear,
     Quit,
     Pod,
     InsertJson(String),
-    SetProb(f64),
 }
 
 pub enum ResultMessage {
@@ -459,7 +462,7 @@ fn resolve_pointers(items: &mut Box<Vector<Item>>, pointer_state: &Vector<Pointe
     empty_pointer.clone()
 }
 
-fn sort_and_resolve(items: &mut Box<Vector<Item>>, pointer_state: &Vector<PointerState>) {
+fn resolve(items: &mut Box<Vector<Item>>, pointer_state: &Vector<PointerState>) {
     if !resolve_pointers(items, pointer_state) {
         items
             .iter_mut()
@@ -467,7 +470,6 @@ fn sort_and_resolve(items: &mut Box<Vector<Item>>, pointer_state: &Vector<Pointe
     } else {
         items.iter_mut().for_each(|i| i.view = i.text.to_string())
     }
-    items.sort_by(|left, right| left.view.cmp(&right.view));
 }
 
 fn resolve_pointer(text: &str, ps: &str) -> String {
@@ -491,6 +493,28 @@ fn resolve_pointer(text: &str, ps: &str) -> String {
         return string.to_string();
     }
     ps.to_string()
+}
+fn resolve_pointer_some(text: &str, ps: &str) -> Option<String> {
+    let mut json: Value = match serde_json::from_str(text) {
+        Ok(json) => json,
+        Err(_) => Value::Null,
+    };
+    let ptr = match Pointer::try_from(ps) {
+        Ok(ptr) => ptr,
+        Err(_) => Pointer::root(),
+    };
+
+    let string = match json.resolve_mut(&ptr) {
+        Ok(v) => v,
+        Err(_) => &Value::Null,
+    };
+    if string.is_string() {
+        return Some(string.as_str().unwrap().to_string());
+    }
+    if !string.is_null() {
+        return Some(string.to_string());
+    }
+    None
 }
 
 pub fn get_file_as_byte_vec(filename: &str) -> Result<Vec<u8>, Error> {

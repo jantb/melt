@@ -26,6 +26,7 @@ kube = { version = "0.78.0", default-features = false, features = ["client", "ru
 k8s-openapi = { version = "0.17.0", features = ["v1_26"] }
 tokio = {version= "1.25.0", features=["full"]}
 tokio-stream = "0.1.11"
+rayon = "1.6.1"
 
 
 [profile.release]

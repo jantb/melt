@@ -8,10 +8,12 @@ use serde_json::Value;
 
 use crate::data::{AppState, ItemRich, PointerState};
 use crate::index::CommandMessage;
+use crate::GLOBAL_STATE;
 
 pub const SET_VIEW: Selector<String> = Selector::new("set_view");
 pub const SEARCH: Selector<((String, String), bool)> = Selector::new("search");
 pub const CHECK_CLICKED_FOR_POINTER: Selector<PointerState> = Selector::new("clicked");
+pub const CHECK_CLICKED_FOR_POINTER_SORT: Selector<PointerState> = Selector::new("clicked_sort");
 pub const CHECK_CLICKED_FOR_POINTER_VIEW: Selector<PointerState> = Selector::new("clicked_view");
 pub const CHANGE_SETTINGS: Selector<bool> = Selector::new("change_setting");
 pub const SEARCH_RESULT: Selector = Selector::new("search_result");
@@ -37,11 +39,13 @@ impl AppDelegate<AppState> for Delegate {
                             text: v.to_string(),
                             number: u64::MAX,
                             checked: false,
+                            checked_sort: false,
                         });
                         data.pointers_view.push_back(PointerState {
                             text: v.to_string(),
                             number: u64::MAX,
                             checked: false,
+                            checked_sort: false,
                         });
                     });
             }
@@ -100,6 +104,22 @@ impl AppDelegate<AppState> for Delegate {
                 }
             });
             Handled::Yes
+        } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER_SORT) {
+            data.pointers.iter_mut().for_each(|p| {
+                if p.text == pointer_state.text {
+                    p.checked_sort = pointer_state.checked_sort;
+                } else {
+                    p.checked_sort = false;
+                }
+            });
+            GLOBAL_STATE.lock().unwrap().sort = data
+                .pointers
+                .iter()
+                .filter(|p| p.checked_sort)
+                .map(|p| p.text.to_string())
+                .last()
+                .unwrap_or("".to_string());
+            Handled::Yes
         } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER_VIEW) {
             data.pointers_view.iter_mut().for_each(|p| {
                 if p.text == pointer_state.text {
@@ -122,6 +142,7 @@ impl AppDelegate<AppState> for Delegate {
                     data.timelimit as u64,
                     data.viewlimit as usize,
                     pointers,
+                    data.sort,
                 ))
                 .unwrap();
             Handled::Yes

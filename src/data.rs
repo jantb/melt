@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::delegate::{SEARCH, SET_VIEW};
 use crate::index::CommandMessage;
+use crate::GLOBAL_STATE;
 
 #[derive(Clone, Data, Lens)]
 pub struct AppState {
@@ -36,7 +37,7 @@ pub struct AppState {
     #[data(ignore)]
     pub ongoing_search: bool,
     pub properties: Vector<String>,
-
+    pub sort: bool,
     #[data(ignore)]
     pub tx: Sender<CommandMessage>,
 }
@@ -65,6 +66,7 @@ impl AppState {
                 .iter()
                 .map(|p| p.clone())
                 .collect::<Vec<PointerState>>(),
+            sort: GLOBAL_STATE.lock().unwrap().sort.to_string(),
         }
     }
 }
@@ -74,6 +76,7 @@ pub struct SerializableParameters {
     pub pointer_state: Vec<PointerState>,
     pub pointer_state_view: Vec<PointerState>,
     pub indexed_data_in_bytes: u64,
+    pub sort: String,
 }
 
 impl Default for SerializableParameters {
@@ -82,6 +85,7 @@ impl Default for SerializableParameters {
             indexed_data_in_bytes: 0,
             pointer_state: vec![],
             pointer_state_view: vec![],
+            sort: "".to_string(),
         }
     }
 }
@@ -91,6 +95,7 @@ pub struct PointerState {
     pub text: String,
     pub number: u64,
     pub checked: bool,
+    pub checked_sort: bool,
 }
 
 #[derive(Clone, Data, Lens, Serialize, Deserialize)]

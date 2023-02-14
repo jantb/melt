@@ -36,6 +36,7 @@ pub struct GlobalState {
     query: String,
     query_neg: String,
     label_num: u64,
+    sort: String,
 }
 
 impl Default for GlobalState {
@@ -44,6 +45,7 @@ impl Default for GlobalState {
             query: "".to_string(),
             query_neg: "".to_string(),
             label_num: 0,
+            sort: "".to_string(),
         }
     }
 }
@@ -81,6 +83,7 @@ async fn main() -> () {
         settings: false,
         ongoing_search: false,
         properties: Default::default(),
+        sort: false,
         tx: tx_search.clone(),
     };
     let handle = search_thread(rx_search, tx_search.clone(), sink).await;
@@ -101,6 +104,7 @@ pub fn load_from_json() -> SerializableParameters {
             let parameters: SerializableParameters =
                 deserialize(&file).unwrap_or(SerializableParameters::default());
             GLOBAL_DATA_SIZE.store(parameters.indexed_data_in_bytes, SeqCst);
+            GLOBAL_STATE.lock().unwrap().sort = parameters.sort.to_string();
             parameters
         }
         Err(_) => SerializableParameters::default(),
