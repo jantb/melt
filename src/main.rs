@@ -72,6 +72,7 @@ async fn main() -> () {
         items_rich: Default::default(),
         view: "".to_string(),
         pointers: Vector::from(parameters.pointer_state),
+        pointers_view: Vector::from(parameters.pointer_state_view),
         query_time: "".to_string(),
         count: "0".to_string(),
         size: "0".to_string(),
@@ -80,7 +81,6 @@ async fn main() -> () {
         settings: false,
         ongoing_search: false,
         properties: Default::default(),
-        view_column: parameters.view_column,
         tx: tx_search.clone(),
     };
     let handle = search_thread(rx_search, tx_search.clone(), sink).await;

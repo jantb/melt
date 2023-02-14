@@ -24,6 +24,7 @@ pub struct AppState {
     pub items_rich: Vector<ItemRich>,
     pub view: String,
     pub pointers: Vector<PointerState>,
+    pub pointers_view: Vector<PointerState>,
     pub query_time: String,
     pub count: String,
     pub size: String,
@@ -35,7 +36,6 @@ pub struct AppState {
     #[data(ignore)]
     pub ongoing_search: bool,
     pub properties: Vector<String>,
-    pub view_column: String,
 
     #[data(ignore)]
     pub tx: Sender<CommandMessage>,
@@ -54,9 +54,13 @@ impl Drop for AppState {
 impl AppState {
     fn get_serializable_parameters(&self) -> SerializableParameters {
         SerializableParameters {
-            view_column: self.view_column.to_string(),
             indexed_data_in_bytes: self.indexed_data_in_bytes,
             pointer_state: self
+                .pointers
+                .iter()
+                .map(|p| p.clone())
+                .collect::<Vec<PointerState>>(),
+            pointer_state_view: self
                 .pointers
                 .iter()
                 .map(|p| p.clone())
@@ -67,17 +71,17 @@ impl AppState {
 
 #[derive(Serialize, Deserialize)]
 pub struct SerializableParameters {
-    pub view_column: String,
     pub pointer_state: Vec<PointerState>,
+    pub pointer_state_view: Vec<PointerState>,
     pub indexed_data_in_bytes: u64,
 }
 
 impl Default for SerializableParameters {
     fn default() -> Self {
         SerializableParameters {
-            view_column: "".to_string(),
             indexed_data_in_bytes: 0,
             pointer_state: vec![],
+            pointer_state_view: vec![],
         }
     }
 }
@@ -86,9 +90,7 @@ impl Default for SerializableParameters {
 pub struct PointerState {
     pub text: String,
     pub number: u64,
-    pub number_view: u64,
     pub checked: bool,
-    pub checked_view: bool,
 }
 
 #[derive(Clone, Data, Lens, Serialize, Deserialize)]
@@ -119,23 +121,23 @@ pub struct Item {
 
 #[derive(Clone, Data, Lens)]
 pub struct ItemRich {
-    pub text: RichText,
+    pub text: String,
     #[data(ignore)]
     pub pointers: Vec<String>,
     #[data(ignore)]
     pub pointer_states: Vec<PointerStateItem>,
-    pub view: String,
+    pub view: RichText,
 }
 
 impl PietTextStorage for ItemRich {
     fn as_str(&self) -> &str {
-        self.text.as_str()
+        self.view.as_str()
     }
 }
 
 impl TextStorage for ItemRich {
     fn add_attributes(&self, builder: PietTextLayoutBuilder, env: &Env) -> PietTextLayoutBuilder {
-        self.text.add_attributes(builder, env)
+        self.view.add_attributes(builder, env)
     }
 }
 

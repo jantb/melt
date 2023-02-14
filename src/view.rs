@@ -229,7 +229,7 @@ pub fn build_ui() -> impl Widget<AppState> {
             Button::new("Clear settings")
                 .on_click(|ctx, data: &mut AppState, _env| {
                     data.pointers.clear();
-                    data.view_column = "".to_string();
+                    data.pointers_view.clear();
                     ctx.request_update();
                 })
                 .align_left(),
@@ -263,10 +263,10 @@ pub fn build_ui() -> impl Widget<AppState> {
         .with_child(
             Scroll::new(List::new(|| {
                 Flex::row()
-                    .with_child(Checkbox::new("").lens(PointerState::checked_view).on_click(
+                    .with_child(Checkbox::new("").lens(PointerState::checked).on_click(
                         |ctx, pointer_state, _env| {
-                            pointer_state.checked_view = !pointer_state.checked_view;
-                            if pointer_state.checked_view {
+                            pointer_state.checked = !pointer_state.checked;
+                            if pointer_state.checked {
                                 GLOBAL_STATE.lock().unwrap().label_num += 1;
                                 pointer_state.number = GLOBAL_STATE.lock().unwrap().label_num;
                             } else {
@@ -282,7 +282,7 @@ pub fn build_ui() -> impl Widget<AppState> {
                     }))
             }))
             .vertical()
-            .lens(AppState::pointers)
+            .lens(AppState::pointers_view)
             .align_left(),
         );
 

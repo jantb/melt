@@ -36,26 +36,26 @@ impl AppDelegate<AppState> for Delegate {
                         data.pointers.push_back(PointerState {
                             text: v.to_string(),
                             number: u64::MAX,
-                            number_view: u64::MAX,
                             checked: false,
-                            checked_view: false,
-                        })
+                        });
+                        data.pointers_view.push_back(PointerState {
+                            text: v.to_string(),
+                            number: u64::MAX,
+                            checked: false,
+                        });
                     });
             }
-            if data.view_column.is_empty() {
-                data.view = parse_json(text.to_string().as_str());
+            println!("{}", text);
+            if data.pointers_view.iter().filter(|p| p.checked).count() == 0 {
+                data.view = text.to_string()
             } else {
-                let string1 = data.view_column.clone();
-                let split = string1.split(" ").collect::<Vec<&str>>();
-                let string2 = split
+                data.view = data
+                    .pointers_view
                     .iter()
-                    .map(|s| {
-                        let pointer = resolve_pointer(text, s);
-                        parse_json(pointer.as_str())
-                    })
+                    .filter(|p| p.checked)
+                    .map(|p| resolve_pointer(&text, &p.text))
                     .collect::<Vec<String>>()
-                    .join(" ");
-                data.view = string2
+                    .join(" ")
             }
             Handled::Yes
         } else if let Some(b) = cmd.get(CHANGE_SETTINGS) {
@@ -82,10 +82,10 @@ impl AppDelegate<AppState> for Delegate {
                     builder.push(x.view.as_str());
                 }
                 vec1.push(ItemRich {
-                    text: builder.build(),
+                    text: x.text,
                     pointers: x.pointers,
                     pointer_states: x.pointer_states,
-                    view: x.view,
+                    view: builder.build(),
                 })
             }
             data.items_rich = Vector::from(vec1);
@@ -99,19 +99,12 @@ impl AppDelegate<AppState> for Delegate {
             });
             Handled::Yes
         } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER_VIEW) {
-            data.pointers.iter_mut().for_each(|p| {
+            data.pointers_view.iter_mut().for_each(|p| {
                 if p.text == pointer_state.text {
-                    p.checked_view = pointer_state.checked_view;
-                    p.number_view = pointer_state.number_view;
+                    p.checked = pointer_state.checked;
+                    p.number = pointer_state.number;
                 }
             });
-            let mut vector = data.pointers.clone();
-            vector.sort_by(|a, b| a.number_view.partial_cmp(&b.number_view).unwrap());
-            data.view_column = vector
-                .iter()
-                .map(|s| s.clone().text)
-                .collect::<Vec<String>>()
-                .join(" ");
             Handled::Yes
         } else if let Some(_) = cmd.get(CLEAR_DB) {
             data.tx.send(CommandMessage::Clear).unwrap();
