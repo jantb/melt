@@ -46,7 +46,7 @@ impl AppDelegate<AppState> for Delegate {
                     });
             }
             if data.pointers_view.iter().filter(|p| p.checked).count() == 0 {
-                data.view = text.to_string()
+                data.view = parse_json(&text.to_string())
             } else {
                 data.pointers_view
                     .sort_by(|left, right| left.number.partial_cmp(&right.number).unwrap());
