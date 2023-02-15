@@ -29,7 +29,7 @@ use tokio::time::sleep;
 use tokio_stream::StreamExt;
 
 use crate::data::{AppState, Item, PointerState};
-use crate::delegate::SEARCH_RESULT;
+use crate::delegate::{SEARCH, SEARCH_RESULT};
 use crate::GLOBAL_STATE;
 
 pub static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -44,6 +44,22 @@ pub async fn search_thread(
     sink: ExtEventSink,
 ) -> JoinHandle<i32> {
     socket_listener(tx_search.clone(), sink.clone());
+    let s = sink.clone();
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(1000));
+        let state = GLOBAL_STATE.lock().unwrap();
+        if state.tail {
+            s.submit_command(
+                SEARCH,
+                (
+                    (state.query.to_string(), state.query_neg.to_string()),
+                    false,
+                ),
+                Target::Auto,
+            )
+            .unwrap();
+        }
+    });
     index_tread(rx_search, tx_search, sink.clone())
 }
 
@@ -296,7 +312,8 @@ fn index_tread(
                                 GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
                             };
 
-                            match resolve_pointer_some(&cm, &GLOBAL_STATE.lock().unwrap().sort) {
+                            let state = GLOBAL_STATE.lock().unwrap();
+                            match resolve_pointer_some(&cm, &state.sort) {
                                 None => {}
                                 Some(p) => {
                                     sortmap.insert(key, p);

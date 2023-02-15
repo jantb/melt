@@ -11,7 +11,7 @@ use druid::{
 use crate::data::*;
 use crate::delegate::{
     CHANGE_SETTINGS, CHECK_CLICKED_FOR_POINTER, CHECK_CLICKED_FOR_POINTER_SORT,
-    CHECK_CLICKED_FOR_POINTER_VIEW, CLEAR_DB, SEARCH,
+    CHECK_CLICKED_FOR_POINTER_VIEW, CLEAR_DB, SEARCH, TAIL,
 };
 use crate::index::CommandMessage;
 use crate::GLOBAL_STATE;
@@ -197,7 +197,16 @@ pub fn build_ui() -> impl Widget<AppState> {
                 .lens(AppState::viewlimit)
                 .align_left(),
         )
-        .with_child(Checkbox::new("Sort").lens(AppState::sort))
+        .with_child(Checkbox::new("Sort").lens(AppState::sort).align_left())
+        .with_child(
+            Checkbox::new("Tail")
+                .lens(AppState::tail)
+                .on_click(|ctx, app_state: &mut AppState, _env| {
+                    app_state.tail = !app_state.tail;
+                    ctx.submit_command(TAIL.with(app_state.tail));
+                })
+                .align_left(),
+        )
         .with_child(new_search_textbox())
         .with_flex_child(Scroll::new(items).vertical(), 1.);
 

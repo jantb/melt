@@ -18,6 +18,7 @@ pub const CHECK_CLICKED_FOR_POINTER_VIEW: Selector<PointerState> = Selector::new
 pub const CHANGE_SETTINGS: Selector<bool> = Selector::new("change_setting");
 pub const SEARCH_RESULT: Selector = Selector::new("search_result");
 pub const CLEAR_DB: Selector = Selector::new("clear_db");
+pub const TAIL: Selector<bool> = Selector::new("tail");
 
 pub struct Delegate;
 
@@ -103,6 +104,9 @@ impl AppDelegate<AppState> for Delegate {
                     p.number = pointer_state.number;
                 }
             });
+            Handled::Yes
+        } else if let Some(tail) = cmd.get(TAIL) {
+            GLOBAL_STATE.lock().unwrap().tail = *tail;
             Handled::Yes
         } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER_SORT) {
             data.pointers.iter_mut().for_each(|p| {

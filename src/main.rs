@@ -37,6 +37,7 @@ pub struct GlobalState {
     query_neg: String,
     label_num: u64,
     sort: String,
+    tail: bool,
 }
 
 impl Default for GlobalState {
@@ -46,6 +47,7 @@ impl Default for GlobalState {
             query_neg: "".to_string(),
             label_num: 0,
             sort: "".to_string(),
+            tail: false,
         }
     }
 }
@@ -84,6 +86,7 @@ async fn main() -> () {
         ongoing_search: false,
         properties: Default::default(),
         sort: false,
+        tail: false,
         tx: tx_search.clone(),
     };
     let handle = search_thread(rx_search, tx_search.clone(), sink).await;

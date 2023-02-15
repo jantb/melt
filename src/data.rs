@@ -38,6 +38,7 @@ pub struct AppState {
     pub ongoing_search: bool,
     pub properties: Vector<String>,
     pub sort: bool,
+    pub tail: bool,
     #[data(ignore)]
     pub tx: Sender<CommandMessage>,
 }
@@ -62,7 +63,7 @@ impl AppState {
                 .map(|p| p.clone())
                 .collect::<Vec<PointerState>>(),
             pointer_state_view: self
-                .pointers
+                .pointers_view
                 .iter()
                 .map(|p| p.clone())
                 .collect::<Vec<PointerState>>(),
