@@ -38,6 +38,7 @@ pub struct GlobalState {
     label_num: u64,
     sort: String,
     tail: bool,
+    exact: bool,
 }
 
 impl Default for GlobalState {
@@ -48,6 +49,7 @@ impl Default for GlobalState {
             label_num: 0,
             sort: "".to_string(),
             tail: false,
+            exact: false,
         }
     }
 }

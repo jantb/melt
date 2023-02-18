@@ -61,6 +61,7 @@ impl<W: Widget<AppState>> Controller<AppState, W> for SearchController {
         if let Event::KeyUp(_) = event {
             GLOBAL_STATE.lock().unwrap().query = data.query.to_string();
             GLOBAL_STATE.lock().unwrap().query_neg = data.not_query.to_string();
+            GLOBAL_STATE.lock().unwrap().exact = data.exact;
             ctx.submit_command(SEARCH.with((
                 (data.query.to_string(), data.not_query.to_string()),
                 data.exact,

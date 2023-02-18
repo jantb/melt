@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Error, Read};
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Error, Read, Seek, SeekFrom, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use std::{fs, thread};
+use std::{fs, io, thread};
 
 use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
@@ -19,10 +19,7 @@ use kube::{Api, Client};
 use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
 use num_format::{Locale, ToFormattedString};
-use rocksdb::{
-    BlockBasedOptions, Cache, DBCompactionStyle, DBCompressionType, DBWithThreadMode, Options,
-    SingleThreaded, DB,
-};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -40,49 +37,106 @@ pub static COUNT_STACK: AtomicU64 = AtomicU64::new(0);
 
 struct MemStore {
     lines: BTreeMap<String, String>,
+    index_fd: BTreeMap<usize, Entry>,
     index: SearchIndex,
-    conn: DBWithThreadMode<SingleThreaded>,
     bytes: usize,
+    bytes_internal: usize,
+    data_fd: File,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Entry {
+    offset: u64,
+    len: usize,
 }
 
 impl MemStore {
+    fn open() -> io::Result<Self> {
+        let data_fd = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(".melt.data")?;
+        let len = data_fd.metadata().unwrap().len();
+        let mut store = MemStore {
+            lines: MemStore::load_index_mem(),
+            index_fd: MemStore::load_index_fd(),
+            index: MemStore::load_index(),
+            data_fd,
+            bytes: 0,
+            bytes_internal: 0,
+        };
+
+        store.bytes_internal = store.lines.iter().map(|s| s.1.len()).sum();
+        store.bytes = store.bytes_internal + len as usize;
+        Ok(store)
+    }
+
+    pub fn put(&mut self, key: usize, value: &str) -> io::Result<()> {
+        let offset = self.data_fd.seek(SeekFrom::End(0))?;
+        self.data_fd.write_all(value.as_bytes())?;
+        self.index_fd.insert(
+            key,
+            Entry {
+                offset,
+                len: value.len(),
+            },
+        );
+        Ok(())
+    }
+
+    pub fn get(&self, key: &usize) -> io::Result<String> {
+        let entry = self.index_fd.get(key).unwrap();
+        let mut file = &self.data_fd;
+        file.seek(SeekFrom::Start(entry.offset))?;
+        let mut value = vec![0; entry.len];
+        file.read_exact(&mut value)?;
+        let string = String::from_utf8_lossy(value.as_slice()).to_string();
+        return Ok(string);
+    }
+
     fn clear(&mut self) {
         self.lines.clear();
         self.index.clear();
-        let _ = DB::destroy(&Options::default(), ".melt.db");
+        self.data_fd.set_len(0).unwrap();
+        self.index_fd.clear();
     }
 
     fn add(&mut self, sort_column: &str, value: &str) {
-        if self.lines.len() >= 10000 {
-            let x = &self.lines.pop_last().unwrap().1;
-            let i = self.index.add(value.to_string().as_str());
-            self.conn.put(&i.to_le_bytes(), x).unwrap();
+        self.bytes += value.len();
+        if self.bytes_internal > 1024 * 1024 * 32 {
+            let val = self.lines.pop_last().unwrap().1;
+            let key = self.index.add(&val);
+            self.bytes_internal -= val.len();
+            self.put(key, &val).unwrap();
         }
+        self.bytes_internal += value.len();
         self.lines
             .insert(sort_column.to_string(), value.to_string());
     }
 
     fn find(
-        &self,
+        &mut self,
         query: &str,
         query_neq: &str,
         exact: bool,
         limit: usize,
         time: u128,
     ) -> Vec<String> {
+        let query = query.to_lowercase();
         let mut result = self
             .lines
             .values()
             .into_iter()
             .filter(|s| {
                 (query_neq.is_empty() || !self.is_match(false, &query_neq.to_lowercase(), s))
-                    && self.is_match(exact, &query.to_lowercase(), s)
+                    && self.is_match(exact, &query, s)
             })
             .take(limit)
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
         if result.len() < limit {
-            let mut positive_keys = self.index.search(query, exact);
+            let mut positive_keys = self.index.search(&query, exact);
             let mut negative_keys = self.index.search_or(query_neq);
             if !query_neq.is_empty() {
                 let set: FnvHashSet<usize> = positive_keys.iter().cloned().collect();
@@ -91,23 +145,27 @@ impl MemStore {
                 positive_keys.retain(|x| !set_neg.contains(x));
             }
             let start = Instant::now();
-            result.extend(self.internal_find(
-                positive_keys,
-                limit,
-                |s: &String| self.is_match(exact, &query.to_lowercase(), s),
-                start,
-                time,
-            ));
-            result.extend(self.internal_find(
-                negative_keys,
-                limit - result.len(),
-                |s: &String| {
-                    !self.is_match(false, &query_neq.to_lowercase(), s)
-                        && self.is_match(exact, &query.to_lowercase(), s)
-                },
-                start,
-                time,
-            ));
+            if result.len() < limit {
+                result.extend(self.internal_find(
+                    positive_keys,
+                    limit - result.len(),
+                    |s: &String| self.is_match(exact, &query, s),
+                    start,
+                    time,
+                ));
+            }
+            if result.len() < limit {
+                result.extend(self.internal_find(
+                    negative_keys,
+                    limit - result.len(),
+                    |s: &String| {
+                        !self.is_match(false, &query_neq.to_lowercase(), s)
+                            && self.is_match(exact, &query, s)
+                    },
+                    start,
+                    time,
+                ));
+            }
         }
         result
     }
@@ -126,10 +184,7 @@ impl MemStore {
     ) -> Vec<String> {
         keys.iter()
             .take_while(|_| start.elapsed().as_millis() < time)
-            .map(|x| {
-                String::from_utf8_lossy(&self.conn.get(x.to_le_bytes().to_vec()).unwrap().unwrap())
-                    .to_string()
-            })
+            .map(|x| self.get(x).unwrap())
             .filter(filter)
             .take(limit)
             .collect::<Vec<String>>()
@@ -144,6 +199,38 @@ impl MemStore {
             haystack.contains(needle)
         } else {
             needle.split(" ").all(|part| haystack.contains(part))
+        }
+    }
+
+    fn write(&mut self) {
+        let serialized: Vec<u8> = bincode::serialize(&self.lines).unwrap();
+        fs::write(".melt_index_mem.dat", serialized).unwrap();
+        let serialized: Vec<u8> = bincode::serialize(&self.index).unwrap();
+        fs::write(".melt_index.dat", serialized).unwrap();
+        let serialized: Vec<u8> = bincode::serialize(&self.index_fd).unwrap();
+        fs::write(".melt_index_fd.dat", serialized).unwrap();
+        self.data_fd.sync_all().unwrap()
+    }
+
+    fn load_index() -> SearchIndex {
+        let file = get_file_as_byte_vec(&".melt_index.dat");
+        match file {
+            Ok(file) => deserialize(&file).unwrap_or(get_search_index()),
+            Err(_) => get_search_index(),
+        }
+    }
+    fn load_index_mem() -> BTreeMap<String, String> {
+        let file = get_file_as_byte_vec(&".melt_index_mem.dat");
+        match file {
+            Ok(file) => deserialize(&file).unwrap_or(BTreeMap::new()),
+            Err(_) => BTreeMap::new(),
+        }
+    }
+    fn load_index_fd() -> BTreeMap<usize, Entry> {
+        let file = get_file_as_byte_vec(&".melt_index_fd.dat");
+        match file {
+            Ok(file) => deserialize(&file).unwrap_or(BTreeMap::new()),
+            Err(_) => BTreeMap::new(),
         }
     }
 }
@@ -163,7 +250,7 @@ pub async fn search_thread(
                 SEARCH,
                 (
                     (state.query.to_string(), state.query_neg.to_string()),
-                    false,
+                    state.exact,
                 ),
                 Target::Auto,
             )
@@ -262,58 +349,9 @@ fn index_tread(
     sink: ExtEventSink,
 ) -> JoinHandle<i32> {
     tokio::spawn(async move {
-        //   let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-        let path = ".melt.db";
-
-        let cpu = num_cpus::get() as _;
-        let mut opt = Options::default();
-
-        opt.create_if_missing(true);
-        opt.set_use_fsync(false);
-        opt.set_compaction_style(DBCompactionStyle::Universal);
-        opt.set_disable_auto_compactions(false);
-        opt.increase_parallelism(cpu);
-        opt.set_max_background_jobs(cpu / 3 + 1);
-        opt.set_keep_log_file_num(16);
-        opt.set_level_compaction_dynamic_level_bytes(true);
-
-        opt.set_compression_type(DBCompressionType::Lz4);
-        opt.set_bottommost_compression_type(DBCompressionType::Zstd);
-        let dict_size = 32768;
-        let max_train_bytes = dict_size * 128;
-        opt.set_bottommost_compression_options(-14, 32767, 0, dict_size, true);
-        opt.set_bottommost_zstd_max_train_bytes(max_train_bytes, true);
-
-        opt.set_enable_blob_files(true);
-        opt.set_min_blob_size(4096);
-        opt.set_blob_file_size(268435456);
-        opt.set_blob_compression_type(DBCompressionType::Zstd);
-        opt.set_enable_blob_gc(true);
-        opt.set_blob_gc_age_cutoff(0.25);
-        opt.set_blob_gc_force_threshold(0.8);
-
-        opt.set_bytes_per_sync(8388608);
-
-        let cache = Cache::new_lru_cache(16 * 1024 * 1024).unwrap();
-        let mut bopt = BlockBasedOptions::default();
-        bopt.set_ribbon_filter(10.0);
-        bopt.set_block_cache(&cache);
-        bopt.set_block_size(6 * 1024);
-        bopt.set_cache_index_and_filter_blocks(true);
-        bopt.set_pin_l0_filter_and_index_blocks_in_cache(true);
-        opt.set_block_based_table_factory(&bopt);
-        opt.create_missing_column_families(true);
-
-        let conn: DBWithThreadMode<SingleThreaded> =
-            DBWithThreadMode::open_cf(&opt, path, &["default"]).unwrap();
-        let mut mem_store = MemStore {
-            lines: Default::default(),
-            index: load_from_json(),
-            conn,
-            bytes: 0,
-        };
+        let mut mem_store = MemStore::open().unwrap();
         GLOBAL_COUNT.store(mem_store.size(), Ordering::SeqCst);
-
+        GLOBAL_DATA_SIZE.store(mem_store.bytes as u64, Ordering::SeqCst);
         let mut handles = vec![];
         loop {
             match rx_search.recv() {
@@ -328,7 +366,7 @@ fn index_tread(
                         sink.add_idle_callback(move |data: &mut AppState| {
                             data.ongoing_search = true;
                         });
-
+                        let instant = Instant::now();
                         let result = mem_store.find(
                             query.as_str(),
                             neg_query.as_str(),
@@ -337,10 +375,10 @@ fn index_tread(
                             time as u128,
                         );
 
-                        let res_size = result.len();
                         let query_time = format!(
-                            "\nResults      {}",
-                            res_size.to_formatted_string(&Locale::en)
+                            "Query time   {:?}\nResults      {}",
+                            instant.elapsed(),
+                            result.len().to_formatted_string(&Locale::en)
                         );
 
                         let mut items: Box<Vector<_>> =
@@ -359,7 +397,7 @@ fn index_tread(
                     CommandMessage::Pod => handles.extend(pods(tx_search.clone()).await),
                     CommandMessage::Quit => {
                         handles.iter().for_each(|h| h.abort());
-                        write_index_to_disk(&mem_store.index);
+                        mem_store.write();
                         return 0;
                     }
                     CommandMessage::InsertJson(cm) => {
@@ -371,8 +409,7 @@ fn index_tread(
                                 mem_store.add(&p, &cm);
                             }
                         };
-
-                        GLOBAL_DATA_SIZE.fetch_add(cm.as_bytes().len() as u64, Ordering::SeqCst);
+                        GLOBAL_DATA_SIZE.store(mem_store.bytes as u64, Ordering::SeqCst);
                         GLOBAL_COUNT.store(mem_store.size(), Ordering::SeqCst);
                     }
 
@@ -386,30 +423,6 @@ fn index_tread(
             };
         }
     })
-}
-
-fn search(
-    keys: Vec<usize>,
-    limit: usize,
-    filter: impl Fn(&String) -> bool,
-    start: Instant,
-    time: u128,
-    conn: &DBWithThreadMode<SingleThreaded>,
-) -> Vec<String> {
-    keys.iter()
-        .take_while(|_| start.elapsed().as_millis() < time)
-        .map(|x| {
-            String::from_utf8_lossy(&conn.get(x.to_le_bytes().to_vec()).unwrap().unwrap())
-                .to_string()
-        })
-        .filter(filter)
-        .take(limit)
-        .collect::<Vec<String>>()
-}
-
-fn write_index_to_disk(index: &SearchIndex) {
-    let serialized: Vec<u8> = bincode::serialize(&index).unwrap();
-    fs::write(".melt_index.dat", serialized).unwrap();
 }
 
 fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
@@ -488,14 +501,6 @@ pub enum ResultMessage {
     Messages(Vec<String>, String),
 }
 
-pub fn load_from_json() -> SearchIndex {
-    let file = get_file_as_byte_vec(&".melt_index.dat");
-    match file {
-        Ok(file) => deserialize(&file).unwrap_or(get_search_index()),
-        Err(_) => get_search_index(),
-    }
-}
-
 fn resolve_pointers(items: &mut Box<Vector<Item>>, pointer_state: &Vector<PointerState>) -> bool {
     let mut empty_pointer: bool = true;
     pointer_state.iter().for_each(|ps| {
@@ -545,16 +550,16 @@ fn resolve_pointer(text: &str, ps: &str) -> String {
 fn resolve_pointer_some(text: &str, ps: &str) -> Option<String> {
     let mut json: Value = match serde_json::from_str(text) {
         Ok(json) => json,
-        Err(_) => Value::Null,
+        Err(_) => return None,
     };
     let ptr = match Pointer::try_from(ps) {
         Ok(ptr) => ptr,
-        Err(_) => Pointer::root(),
+        Err(_) => return None,
     };
 
     let string = match json.resolve_mut(&ptr) {
         Ok(v) => v,
-        Err(_) => &Value::Null,
+        Err(_) => return None,
     };
     if string.is_string() {
         return Some(string.as_str().unwrap().to_string());
