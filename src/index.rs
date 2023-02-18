@@ -25,6 +25,7 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
+use zstd::{Decoder, Encoder};
 
 use crate::data::{AppState, Item, PointerState};
 use crate::delegate::{SEARCH, SEARCH_RESULT};
@@ -36,6 +37,7 @@ pub static GLOBAL_DATA_SIZE: AtomicU64 = AtomicU64::new(0);
 pub static COUNT_STACK: AtomicU64 = AtomicU64::new(0);
 
 struct MemStore {
+    dict: Vec<u8>,
     lines: BTreeMap<String, String>,
     index_fd: BTreeMap<usize, Entry>,
     index: SearchIndex,
@@ -59,6 +61,7 @@ impl MemStore {
             .open(".melt.data")?;
         let len = data_fd.metadata().unwrap().len();
         let mut store = MemStore {
+            dict: MemStore::load_index_dict(),
             lines: MemStore::load_index_mem(),
             index_fd: MemStore::load_index_fd(),
             index: MemStore::load_index(),
@@ -72,9 +75,9 @@ impl MemStore {
         Ok(store)
     }
 
-    pub fn put(&mut self, key: usize, value: &str) -> io::Result<()> {
+    pub fn put(&mut self, key: usize, value: &[u8]) -> io::Result<()> {
         let offset = self.data_fd.seek(SeekFrom::End(0))?;
-        self.data_fd.write_all(value.as_bytes())?;
+        self.data_fd.write_all(value)?;
         self.index_fd.insert(
             key,
             Entry {
@@ -91,7 +94,8 @@ impl MemStore {
         file.seek(SeekFrom::Start(entry.offset))?;
         let mut value = vec![0; entry.len];
         file.read_exact(&mut value)?;
-        let string = String::from_utf8_lossy(value.as_slice()).to_string();
+        let string = String::from_utf8_lossy(self.decompress_with_dict(&value).unwrap().as_bytes())
+            .to_string();
         return Ok(string);
     }
 
@@ -100,15 +104,49 @@ impl MemStore {
         self.index.clear();
         self.data_fd.set_len(0).unwrap();
         self.index_fd.clear();
+        self.dict.clear();
+    }
+
+    fn compress_with_dict(&self, input: &str) -> io::Result<Vec<u8>> {
+        // Create an encoder with the dictionary
+        let vec = Vec::new();
+        let mut encoder = Encoder::with_dictionary(vec, 3, &self.dict)?;
+
+        // Write the input to the encoder and flush it
+        encoder.write_all(input.as_bytes())?;
+
+        Ok(encoder.finish()?)
+    }
+
+    fn decompress_with_dict(&self, compressed_data: &[u8]) -> io::Result<String> {
+        // Create a decoder with the provided dictionary
+        let mut decoder = Decoder::with_dictionary(compressed_data, &self.dict)?;
+
+        // Read the decompressed data from the decoder into a string
+        let mut decompressed_data = String::new();
+        decoder.read_to_string(&mut decompressed_data)?;
+
+        Ok(decompressed_data)
     }
 
     fn add(&mut self, sort_column: &str, value: &str) {
         self.bytes += value.len();
         if self.bytes_internal > 1024 * 1024 * 32 {
+            if self.dict.is_empty() {
+                let vec = self
+                    .lines
+                    .values()
+                    .map(|s| s.clone())
+                    .collect::<Vec<String>>();
+                self.dict = zstd::dict::from_samples::<String>(&vec, 1024 * 1024).unwrap();
+            }
+
             let val = self.lines.pop_last().unwrap().1;
+
             let key = self.index.add(&val);
             self.bytes_internal -= val.len();
-            self.put(key, &val).unwrap();
+            let compressed = self.compress_with_dict(&val).unwrap();
+            self.put(key, &compressed).unwrap();
         }
         self.bytes_internal += value.len();
         self.lines
@@ -209,6 +247,8 @@ impl MemStore {
         fs::write(".melt_index.dat", serialized).unwrap();
         let serialized: Vec<u8> = bincode::serialize(&self.index_fd).unwrap();
         fs::write(".melt_index_fd.dat", serialized).unwrap();
+        let serialized: Vec<u8> = bincode::serialize(&self.dict).unwrap();
+        fs::write(".melt_index_dict.dat", serialized).unwrap();
         self.data_fd.sync_all().unwrap()
     }
 
@@ -224,6 +264,13 @@ impl MemStore {
         match file {
             Ok(file) => deserialize(&file).unwrap_or(BTreeMap::new()),
             Err(_) => BTreeMap::new(),
+        }
+    }
+    fn load_index_dict() -> Vec<u8> {
+        let file = get_file_as_byte_vec(&".melt_index_dict.dat");
+        match file {
+            Ok(file) => deserialize(&file).unwrap_or(vec![]),
+            Err(_) => vec![],
         }
     }
     fn load_index_fd() -> BTreeMap<usize, Entry> {
