@@ -25,6 +25,7 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
+use zstd::dict::{DecoderDictionary, EncoderDictionary};
 use zstd::{Decoder, Encoder};
 
 use crate::data::{AppState, Item, PointerState};
@@ -37,13 +38,20 @@ pub static GLOBAL_DATA_SIZE: AtomicU64 = AtomicU64::new(0);
 pub static COUNT_STACK: AtomicU64 = AtomicU64::new(0);
 
 struct MemStore {
+    dict_enc: EncoderDictionary<'static>,
+    dict_dec: DecoderDictionary<'static>,
+    data_fd: File,
+    ser: MemStoreSer,
+}
+
+#[derive(Serialize, Deserialize)]
+struct MemStoreSer {
     dict: Vec<u8>,
     lines: BTreeMap<String, String>,
     index_fd: BTreeMap<usize, Entry>,
     index: SearchIndex,
     bytes: usize,
     bytes_internal: usize,
-    data_fd: File,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -59,26 +67,21 @@ impl MemStore {
             .write(true)
             .create(true)
             .open(".melt.data")?;
-        let len = data_fd.metadata().unwrap().len();
-        let mut store = MemStore {
-            dict: MemStore::load_index_dict(),
-            lines: MemStore::load_index_mem(),
-            index_fd: MemStore::load_index_fd(),
-            index: MemStore::load_index(),
+        let ser = MemStore::load();
+        let store = MemStore {
+            dict_enc: EncoderDictionary::copy(ser.dict.clone().as_slice(), 3),
+            dict_dec: DecoderDictionary::copy(ser.dict.clone().as_slice()),
             data_fd,
-            bytes: 0,
-            bytes_internal: 0,
+            ser,
         };
 
-        store.bytes_internal = store.lines.iter().map(|s| s.1.len()).sum();
-        store.bytes = store.bytes_internal + len as usize;
         Ok(store)
     }
 
     pub fn put(&mut self, key: usize, value: &[u8]) -> io::Result<()> {
         let offset = self.data_fd.seek(SeekFrom::End(0))?;
         self.data_fd.write_all(value)?;
-        self.index_fd.insert(
+        self.ser.index_fd.insert(
             key,
             Entry {
                 offset,
@@ -89,7 +92,7 @@ impl MemStore {
     }
 
     pub fn get(&self, key: &usize) -> io::Result<String> {
-        let entry = self.index_fd.get(key).unwrap();
+        let entry = self.ser.index_fd.get(key).unwrap();
         let mut file = &self.data_fd;
         file.seek(SeekFrom::Start(entry.offset))?;
         let mut value = vec![0; entry.len];
@@ -100,17 +103,17 @@ impl MemStore {
     }
 
     fn clear(&mut self) {
-        self.lines.clear();
-        self.index.clear();
+        self.ser.lines.clear();
+        self.ser.index.clear();
         self.data_fd.set_len(0).unwrap();
-        self.index_fd.clear();
-        self.dict.clear();
+        self.ser.index_fd.clear();
+        self.ser.dict.clear();
     }
 
     fn compress_with_dict(&self, input: &str) -> io::Result<Vec<u8>> {
         // Create an encoder with the dictionary
         let vec = Vec::new();
-        let mut encoder = Encoder::with_dictionary(vec, 3, &self.dict)?;
+        let mut encoder = Encoder::with_prepared_dictionary(vec, &self.dict_enc)?;
 
         // Write the input to the encoder and flush it
         encoder.write_all(input.as_bytes())?;
@@ -120,7 +123,8 @@ impl MemStore {
 
     fn decompress_with_dict(&self, compressed_data: &[u8]) -> io::Result<String> {
         // Create a decoder with the provided dictionary
-        let mut decoder = Decoder::with_dictionary(compressed_data, &self.dict)?;
+
+        let mut decoder = Decoder::with_prepared_dictionary(compressed_data, &self.dict_dec)?;
 
         // Read the decompressed data from the decoder into a string
         let mut decompressed_data = String::new();
@@ -130,26 +134,30 @@ impl MemStore {
     }
 
     fn add(&mut self, sort_column: &str, value: &str) {
-        self.bytes += value.len();
-        if self.bytes_internal > 1024 * 1024 * 32 {
-            if self.dict.is_empty() {
+        self.ser.bytes += value.len();
+        if self.ser.bytes_internal > 1024 * 1024 * 32 {
+            if self.ser.dict.is_empty() {
                 let vec = self
+                    .ser
                     .lines
                     .values()
                     .map(|s| s.clone())
                     .collect::<Vec<String>>();
-                self.dict = zstd::dict::from_samples::<String>(&vec, 1024 * 1024).unwrap();
+                self.ser.dict = zstd::dict::from_samples::<String>(&vec, 1024 * 1024 * 16).unwrap();
+                self.dict_enc = EncoderDictionary::copy(&self.ser.dict, 3);
+                self.dict_dec = DecoderDictionary::copy(&self.ser.dict);
             }
 
-            let val = self.lines.pop_last().unwrap().1;
+            let val = self.ser.lines.pop_last().unwrap().1;
 
-            let key = self.index.add(&val);
-            self.bytes_internal -= val.len();
+            let key = self.ser.index.add(&val);
+            self.ser.bytes_internal -= val.len();
             let compressed = self.compress_with_dict(&val).unwrap();
             self.put(key, &compressed).unwrap();
         }
-        self.bytes_internal += value.len();
-        self.lines
+        self.ser.bytes_internal += value.len();
+        self.ser
+            .lines
             .insert(sort_column.to_string(), value.to_string());
     }
 
@@ -163,6 +171,7 @@ impl MemStore {
     ) -> Vec<String> {
         let query = query.to_lowercase();
         let mut result = self
+            .ser
             .lines
             .values()
             .into_iter()
@@ -174,8 +183,8 @@ impl MemStore {
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
         if result.len() < limit {
-            let mut positive_keys = self.index.search(&query, exact);
-            let mut negative_keys = self.index.search_or(query_neq);
+            let mut positive_keys = self.ser.index.search(&query, exact);
+            let mut negative_keys = self.ser.index.search_or(query_neq);
             if !query_neq.is_empty() {
                 let set: FnvHashSet<usize> = positive_keys.iter().cloned().collect();
                 let set_neg: FnvHashSet<usize> = negative_keys.iter().cloned().collect();
@@ -209,7 +218,7 @@ impl MemStore {
     }
 
     fn size(&self) -> usize {
-        self.lines.len() + self.index.get_size()
+        self.ser.lines.len() + self.ser.index.get_size()
     }
 
     fn internal_find(
@@ -241,43 +250,30 @@ impl MemStore {
     }
 
     fn write(&mut self) {
-        let serialized: Vec<u8> = bincode::serialize(&self.lines).unwrap();
-        fs::write(".melt_index_mem.dat", serialized).unwrap();
-        let serialized: Vec<u8> = bincode::serialize(&self.index).unwrap();
-        fs::write(".melt_index.dat", serialized).unwrap();
-        let serialized: Vec<u8> = bincode::serialize(&self.index_fd).unwrap();
-        fs::write(".melt_index_fd.dat", serialized).unwrap();
-        let serialized: Vec<u8> = bincode::serialize(&self.dict).unwrap();
-        fs::write(".melt_index_dict.dat", serialized).unwrap();
+        let serialized: Vec<u8> = bincode::serialize(&self.ser).unwrap();
+        fs::write(".melt.dat", serialized).unwrap();
         self.data_fd.sync_all().unwrap()
     }
 
-    fn load_index() -> SearchIndex {
-        let file = get_file_as_byte_vec(&".melt_index.dat");
+    fn load() -> MemStoreSer {
+        let file = get_file_as_byte_vec(&".melt.dat");
         match file {
-            Ok(file) => deserialize(&file).unwrap_or(get_search_index()),
-            Err(_) => get_search_index(),
-        }
-    }
-    fn load_index_mem() -> BTreeMap<String, String> {
-        let file = get_file_as_byte_vec(&".melt_index_mem.dat");
-        match file {
-            Ok(file) => deserialize(&file).unwrap_or(BTreeMap::new()),
-            Err(_) => BTreeMap::new(),
-        }
-    }
-    fn load_index_dict() -> Vec<u8> {
-        let file = get_file_as_byte_vec(&".melt_index_dict.dat");
-        match file {
-            Ok(file) => deserialize(&file).unwrap_or(vec![]),
-            Err(_) => vec![],
-        }
-    }
-    fn load_index_fd() -> BTreeMap<usize, Entry> {
-        let file = get_file_as_byte_vec(&".melt_index_fd.dat");
-        match file {
-            Ok(file) => deserialize(&file).unwrap_or(BTreeMap::new()),
-            Err(_) => BTreeMap::new(),
+            Ok(file) => deserialize(&file).unwrap_or(MemStoreSer {
+                dict: vec![],
+                lines: Default::default(),
+                index_fd: Default::default(),
+                index: get_search_index(),
+                bytes: 0,
+                bytes_internal: 0,
+            }),
+            Err(_) => MemStoreSer {
+                dict: vec![],
+                lines: Default::default(),
+                index_fd: Default::default(),
+                index: get_search_index(),
+                bytes: 0,
+                bytes_internal: 0,
+            },
         }
     }
 }
@@ -398,7 +394,7 @@ fn index_tread(
     tokio::spawn(async move {
         let mut mem_store = MemStore::open().unwrap();
         GLOBAL_COUNT.store(mem_store.size(), Ordering::SeqCst);
-        GLOBAL_DATA_SIZE.store(mem_store.bytes as u64, Ordering::SeqCst);
+        GLOBAL_DATA_SIZE.store(mem_store.ser.bytes as u64, Ordering::SeqCst);
         let mut handles = vec![];
         loop {
             match rx_search.recv() {
@@ -456,7 +452,7 @@ fn index_tread(
                                 mem_store.add(&p, &cm);
                             }
                         };
-                        GLOBAL_DATA_SIZE.store(mem_store.bytes as u64, Ordering::SeqCst);
+                        GLOBAL_DATA_SIZE.store(mem_store.ser.bytes as u64, Ordering::SeqCst);
                         GLOBAL_COUNT.store(mem_store.size(), Ordering::SeqCst);
                     }
 
@@ -520,8 +516,8 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
                         Ok(s) => {
                             match sender.send(CommandMessage::InsertJson(s)) {
                                 Ok(_) => {}
-                                Err(e) => {
-                                    println!("{}", e)
+                                Err(_) => {
+                                    return;
                                 }
                             };
                         }
