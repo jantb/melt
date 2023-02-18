@@ -66,35 +66,34 @@ async fn main() -> () {
     let launcher = AppLauncher::with_window(main_window);
     let sink = launcher.get_external_handle();
     let parameters = load_from_json();
-    let state = AppState {
-        query: "".to_string(),
-        timelimit: 50.0,
-        viewlimit: 100.0,
-        not_query: "".to_string(),
-        exact: false,
-        items: Default::default(),
-        items_rich: Default::default(),
-        view: "".to_string(),
-        pointers: Vector::from(parameters.pointer_state),
-        pointers_view: Vector::from(parameters.pointer_state_view),
-        query_time: "".to_string(),
-        count: "0".to_string(),
-        size: "0".to_string(),
-        indexed_data_in_bytes: parameters.indexed_data_in_bytes,
-        indexed_data_in_bytes_string: "".to_string(),
-        settings: false,
-        ongoing_search: false,
-        properties: Default::default(),
-        sort: false,
-        tail: false,
-        tx: tx_search.clone(),
-    };
     let handle = search_thread(rx_search, tx_search.clone(), sink).await;
     launcher
         .delegate(Delegate {})
-        .launch(state)
+        .launch(AppState {
+            query: "".to_string(),
+            timelimit: 50.0,
+            viewlimit: 100.0,
+            not_query: "".to_string(),
+            exact: false,
+            items: Default::default(),
+            items_rich: Default::default(),
+            view: "".to_string(),
+            pointers: Vector::from(parameters.pointer_state),
+            pointers_view: Vector::from(parameters.pointer_state_view),
+            query_time: "".to_string(),
+            count: "0".to_string(),
+            indexed_data_in_bytes: parameters.indexed_data_in_bytes,
+            indexed_data_in_bytes_string: "".to_string(),
+            settings: false,
+            ongoing_search: false,
+            properties: Default::default(),
+            tail: false,
+            tx: tx_search.clone(),
+        })
         .expect("Failed to launch application");
+
     tx_search.send(CommandMessage::Quit).unwrap();
+
     handle.await.unwrap();
 }
 

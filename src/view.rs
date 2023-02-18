@@ -160,12 +160,6 @@ pub fn build_ui() -> impl Widget<AppState> {
         .with_child(
             Label::raw()
                 .with_font(FontDescriptor::new(FontFamily::MONOSPACE))
-                .lens(AppState::size)
-                .align_left(),
-        )
-        .with_child(
-            Label::raw()
-                .with_font(FontDescriptor::new(FontFamily::MONOSPACE))
                 .lens(AppState::indexed_data_in_bytes_string)
                 .align_left(),
         )
@@ -197,7 +191,6 @@ pub fn build_ui() -> impl Widget<AppState> {
                 .lens(AppState::viewlimit)
                 .align_left(),
         )
-        .with_child(Checkbox::new("Sort").lens(AppState::sort).align_left())
         .with_child(
             Checkbox::new("Tail")
                 .lens(AppState::tail)
@@ -231,6 +224,7 @@ pub fn build_ui() -> impl Widget<AppState> {
         .with_child(
             Button::new("Close settings")
                 .on_click(|ctx, data: &mut AppState, _env| {
+                    data.persist();
                     ctx.submit_command(CHANGE_SETTINGS.with(!data.settings));
                     ctx.request_update();
                 })

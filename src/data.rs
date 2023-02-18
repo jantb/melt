@@ -28,7 +28,6 @@ pub struct AppState {
     pub pointers_view: Vector<PointerState>,
     pub query_time: String,
     pub count: String,
-    pub size: String,
     #[data(ignore)]
     pub indexed_data_in_bytes: u64,
     pub indexed_data_in_bytes_string: String,
@@ -37,23 +36,17 @@ pub struct AppState {
     #[data(ignore)]
     pub ongoing_search: bool,
     pub properties: Vector<String>,
-    pub sort: bool,
     pub tail: bool,
     #[data(ignore)]
     pub tx: Sender<CommandMessage>,
 }
 
-impl Drop for AppState {
-    fn drop(&mut self) {
+impl AppState {
+    pub fn persist(&mut self) {
         let parameters = self.get_serializable_parameters();
         let serialized: Vec<u8> = bincode::serialize(&parameters).unwrap();
-        //let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-        let path = ".melt_state.dat";
-        fs::write(path, serialized).unwrap();
+        fs::write(".melt_state.dat", serialized).unwrap();
     }
-}
-
-impl AppState {
     fn get_serializable_parameters(&self) -> SerializableParameters {
         SerializableParameters {
             indexed_data_in_bytes: self.indexed_data_in_bytes,

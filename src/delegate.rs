@@ -146,7 +146,6 @@ impl AppDelegate<AppState> for Delegate {
                     data.timelimit as u64,
                     data.viewlimit as usize,
                     pointers,
-                    data.sort,
                 ))
                 .unwrap();
             Handled::Yes

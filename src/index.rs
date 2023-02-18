@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Error, Read};
 use std::net::TcpListener;
@@ -9,7 +10,7 @@ use bincode::deserialize;
 use crossbeam_channel::{Receiver, Sender};
 use druid::im::Vector;
 use druid::{ExtEventSink, Target};
-use fnv::{FnvHashMap, FnvHashSet};
+use fnv::FnvHashSet;
 use human_bytes::human_bytes;
 use jsonptr::{Pointer, ResolveMut};
 use k8s_openapi::api::core::v1::Pod;
@@ -18,7 +19,6 @@ use kube::{Api, Client};
 use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
 use num_format::{Locale, ToFormattedString};
-use rayon::prelude::ParallelSliceMut;
 use rocksdb::{
     BlockBasedOptions, Cache, DBCompactionStyle, DBCompressionType, DBWithThreadMode, Options,
     SingleThreaded, DB,
@@ -27,6 +27,7 @@ use serde_json::{json, Value};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio_stream::StreamExt;
+use uuid::Uuid;
 
 use crate::data::{AppState, Item, PointerState};
 use crate::delegate::{SEARCH, SEARCH_RESULT};
@@ -34,9 +35,118 @@ use crate::GLOBAL_STATE;
 
 pub static GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_COUNT_NEW: AtomicUsize = AtomicUsize::new(0);
-pub static GLOBAL_SIZE: AtomicUsize = AtomicUsize::new(0);
 pub static GLOBAL_DATA_SIZE: AtomicU64 = AtomicU64::new(0);
 pub static COUNT_STACK: AtomicU64 = AtomicU64::new(0);
+
+struct MemStore {
+    lines: BTreeMap<String, String>,
+    index: SearchIndex,
+    conn: DBWithThreadMode<SingleThreaded>,
+    bytes: usize,
+}
+
+impl MemStore {
+    fn clear(&mut self) {
+        self.lines.clear();
+        self.index.clear();
+        let _ = DB::destroy(&Options::default(), ".melt.db");
+    }
+
+    fn add(&mut self, sort_column: &str, value: &str) {
+        if self.lines.len() >= 10000 {
+            let x = &self.lines.pop_last().unwrap().1;
+            let i = self.index.add(value.to_string().as_str());
+            self.conn.put(&i.to_le_bytes(), x).unwrap();
+        }
+        self.lines
+            .insert(sort_column.to_string(), value.to_string());
+    }
+
+    fn find(
+        &self,
+        query: &str,
+        query_neq: &str,
+        exact: bool,
+        limit: usize,
+        time: u128,
+    ) -> Vec<String> {
+        let mut result = self
+            .lines
+            .values()
+            .into_iter()
+            .filter(|s| {
+                (query_neq.is_empty() || !self.is_match(false, &query_neq.to_lowercase(), s))
+                    && self.is_match(exact, &query.to_lowercase(), s)
+            })
+            .take(limit)
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+        if result.len() < limit {
+            let mut positive_keys = self.index.search(query, exact);
+            let mut negative_keys = self.index.search_or(query_neq);
+            if !query_neq.is_empty() {
+                let set: FnvHashSet<usize> = positive_keys.iter().cloned().collect();
+                let set_neg: FnvHashSet<usize> = negative_keys.iter().cloned().collect();
+                negative_keys.retain(|x| set.contains(x));
+                positive_keys.retain(|x| !set_neg.contains(x));
+            }
+            let start = Instant::now();
+            result.extend(self.internal_find(
+                positive_keys,
+                limit,
+                |s: &String| self.is_match(exact, &query.to_lowercase(), s),
+                start,
+                time,
+            ));
+            result.extend(self.internal_find(
+                negative_keys,
+                limit - result.len(),
+                |s: &String| {
+                    !self.is_match(false, &query_neq.to_lowercase(), s)
+                        && self.is_match(exact, &query.to_lowercase(), s)
+                },
+                start,
+                time,
+            ));
+        }
+        result
+    }
+
+    fn size(&self) -> usize {
+        self.lines.len() + self.index.get_size()
+    }
+
+    fn internal_find(
+        &self,
+        keys: Vec<usize>,
+        limit: usize,
+        filter: impl Fn(&String) -> bool,
+        start: Instant,
+        time: u128,
+    ) -> Vec<String> {
+        keys.iter()
+            .take_while(|_| start.elapsed().as_millis() < time)
+            .map(|x| {
+                String::from_utf8_lossy(&self.conn.get(x.to_le_bytes().to_vec()).unwrap().unwrap())
+                    .to_string()
+            })
+            .filter(filter)
+            .take(limit)
+            .collect::<Vec<String>>()
+    }
+
+    fn is_match(&self, exact: bool, needle: &str, s: &str) -> bool {
+        let haystack = s.to_lowercase();
+        if needle.is_empty() {
+            return true;
+        }
+        if exact {
+            haystack.contains(needle)
+        } else {
+            needle.split(" ").all(|part| haystack.contains(part))
+        }
+    }
+}
 
 pub async fn search_thread(
     rx_search: Receiver<CommandMessage>,
@@ -196,143 +306,82 @@ fn index_tread(
 
         let conn: DBWithThreadMode<SingleThreaded> =
             DBWithThreadMode::open_cf(&opt, path, &["default"]).unwrap();
-        let mut index = load_from_json();
-
-        GLOBAL_COUNT.store(index.get_size(), Ordering::SeqCst);
-        GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
-
-        let mut sortmap: FnvHashMap<usize, String> = FnvHashMap::default();
+        let mut mem_store = MemStore {
+            lines: Default::default(),
+            index: load_from_json(),
+            conn,
+            bytes: 0,
+        };
+        GLOBAL_COUNT.store(mem_store.size(), Ordering::SeqCst);
 
         let mut handles = vec![];
         loop {
             match rx_search.recv() {
-                Ok(cm) => {
-                    match cm {
-                        CommandMessage::Filter(
-                            query,
-                            neg_query,
+                Ok(cm) => match cm {
+                    CommandMessage::Filter(query, neg_query, exact, time, limit, pointer_state) => {
+                        if GLOBAL_STATE.lock().unwrap().query != query
+                            && GLOBAL_STATE.lock().unwrap().query_neg != neg_query
+                        {
+                            continue;
+                        }
+
+                        sink.add_idle_callback(move |data: &mut AppState| {
+                            data.ongoing_search = true;
+                        });
+
+                        let result = mem_store.find(
+                            query.as_str(),
+                            neg_query.as_str(),
                             exact,
-                            time,
                             limit,
-                            pointer_state,
-                            sort,
-                        ) => {
-                            let mut time = time as u128;
-                            if GLOBAL_STATE.lock().unwrap().query != query
-                                && GLOBAL_STATE.lock().unwrap().query_neg != neg_query
-                            {
-                                continue;
-                            }
+                            time as u128,
+                        );
 
-                            sink.add_idle_callback(move |data: &mut AppState| {
-                                data.ongoing_search = true;
-                            });
-                            let start = Instant::now();
-                            let mut positive_keys = index.search(query.as_str(), exact);
-                            let mut negative_keys = index.search_or(neg_query.as_str());
+                        let res_size = result.len();
+                        let query_time = format!(
+                            "\nResults      {}",
+                            res_size.to_formatted_string(&Locale::en)
+                        );
 
-                            let duration_index = start.elapsed();
-                            let start = Instant::now();
-                            if !neg_query.is_empty() {
-                                let set: FnvHashSet<usize> =
-                                    positive_keys.iter().cloned().collect();
-                                let set_neg: FnvHashSet<usize> =
-                                    negative_keys.iter().cloned().collect();
-                                negative_keys.retain(|x| set.contains(x));
-                                positive_keys.retain(|x| !set_neg.contains(x));
-                            }
-                            if sort {
-                                positive_keys.par_sort_unstable_by(|left, right| {
-                                    sortmap
-                                        .get(&right)
-                                        .partial_cmp(&sortmap.get(&left))
-                                        .unwrap()
-                                });
-                            }
-                            let index_hits = positive_keys.len() + negative_keys.len();
+                        let mut items: Box<Vector<_>> =
+                            Box::new(result.iter().map(|m| Item::new(m.as_str())).collect());
 
-                            time -= duration_index.as_millis();
+                        resolve(&mut items, &pointer_state);
 
-                            let mut result = search(
-                                positive_keys,
-                                limit,
-                                |s: &String| is_match(exact, &query.to_lowercase(), s),
-                                start,
-                                time,
-                                &conn,
-                            );
-
-                            result.extend(search(
-                                negative_keys,
-                                limit - result.len(),
-                                |s: &String| {
-                                    !is_match(false, &neg_query.to_lowercase(), s)
-                                        && is_match(exact, &query.to_lowercase(), s)
-                                },
-                                start,
-                                time,
-                                &conn,
-                            ));
-
-                            let duration_db = start.elapsed();
-                            let res_size = result.len();
-                            let query_time = format!("Index        {:?}\nIndex hits   {}\nRetrieve     {:?}\nResults      {}", duration_index, index_hits.to_formatted_string(&Locale::en), duration_db, res_size.to_formatted_string(&Locale::en));
-
-                            let mut items: Box<Vector<_>> = Box::new(
-                                result
-                                    .iter()
-                                    .take(limit)
-                                    .map(|m| Item::new(m.as_str()))
-                                    .collect(),
-                            );
-
-                            resolve(&mut items, &pointer_state);
-
-                            sink.add_idle_callback(move |data: &mut AppState| {
-                                data.query_time = query_time.clone();
-                                data.items = *items;
-                                data.ongoing_search = false;
-                            });
-                            sink.submit_command(SEARCH_RESULT, (), Target::Auto)
-                                .unwrap();
-                        }
-                        CommandMessage::Pod => handles.extend(pods(tx_search.clone()).await),
-                        CommandMessage::Quit => {
-                            handles.iter().for_each(|h| h.abort());
-                            write_index_to_disk(&index);
-                            return 0;
-                        }
-                        CommandMessage::InsertJson(cm) => {
-                            let key = index.add(&cm);
-                            conn.put(key.to_le_bytes(), &cm).unwrap();
-                            GLOBAL_DATA_SIZE
-                                .fetch_add(cm.as_bytes().len() as u64, Ordering::SeqCst);
-                            GLOBAL_COUNT.store(1 + key, Ordering::SeqCst);
-                            if key % 100000 == 0 {
-                                GLOBAL_SIZE.store(index.get_size_bytes(), Ordering::SeqCst);
-                            };
-
-                            let state = GLOBAL_STATE.lock().unwrap();
-                            match resolve_pointer_some(&cm, &state.sort) {
-                                None => {}
-                                Some(p) => {
-                                    sortmap.insert(key, p);
-                                }
-                            };
-                        }
-
-                        CommandMessage::Clear => {
-                            sortmap.clear();
-                            index.clear();
-                            GLOBAL_SIZE.store(0, Ordering::SeqCst);
-                            GLOBAL_COUNT.store(0, Ordering::SeqCst);
-                            GLOBAL_DATA_SIZE.store(0, Ordering::SeqCst);
-                            //    let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-                            let path = ".melt.db";
-                            let _ = DB::destroy(&Options::default(), path);
-                        }
+                        sink.add_idle_callback(move |data: &mut AppState| {
+                            data.query_time = query_time.clone();
+                            data.items = *items;
+                            data.ongoing_search = false;
+                        });
+                        sink.submit_command(SEARCH_RESULT, (), Target::Auto)
+                            .unwrap();
                     }
-                }
+                    CommandMessage::Pod => handles.extend(pods(tx_search.clone()).await),
+                    CommandMessage::Quit => {
+                        handles.iter().for_each(|h| h.abort());
+                        write_index_to_disk(&mem_store.index);
+                        return 0;
+                    }
+                    CommandMessage::InsertJson(cm) => {
+                        match resolve_pointer_some(&cm, &GLOBAL_STATE.lock().unwrap().sort) {
+                            None => {
+                                mem_store.add(&Uuid::new_v4().to_string(), &cm);
+                            }
+                            Some(p) => {
+                                mem_store.add(&p, &cm);
+                            }
+                        };
+
+                        GLOBAL_DATA_SIZE.fetch_add(cm.as_bytes().len() as u64, Ordering::SeqCst);
+                        GLOBAL_COUNT.store(mem_store.size(), Ordering::SeqCst);
+                    }
+
+                    CommandMessage::Clear => {
+                        mem_store.clear();
+                        GLOBAL_COUNT.store(0, Ordering::SeqCst);
+                        GLOBAL_DATA_SIZE.store(0, Ordering::SeqCst);
+                    }
+                },
                 Err(_) => {}
             };
         }
@@ -358,21 +407,9 @@ fn search(
         .collect::<Vec<String>>()
 }
 
-fn is_match(exact: bool, needle: &str, s: &str) -> bool {
-    let haystack = s.to_lowercase();
-    if exact {
-        haystack.contains(needle)
-    } else {
-        needle.split(" ").all(|part| haystack.contains(part))
-    }
-}
-
 fn write_index_to_disk(index: &SearchIndex) {
     let serialized: Vec<u8> = bincode::serialize(&index).unwrap();
-    //  let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-    let path = ".melt_index.dat";
-
-    fs::write(path, serialized).unwrap();
+    fs::write(".melt_index.dat", serialized).unwrap();
 }
 
 fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
@@ -401,10 +438,6 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
                         .to_string()
                 );
             }
-            data.size = format!(
-                "Index size   {}",
-                human_bytes(GLOBAL_SIZE.load(Ordering::SeqCst) as f64)
-            );
             data.indexed_data_in_bytes = GLOBAL_DATA_SIZE.load(Ordering::SeqCst);
             data.indexed_data_in_bytes_string = format!(
                 "Data size    {}",
@@ -444,7 +477,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
 
 #[derive(Clone)]
 pub enum CommandMessage {
-    Filter(String, String, bool, u64, usize, Vector<PointerState>, bool),
+    Filter(String, String, bool, u64, usize, Vector<PointerState>),
     Clear,
     Quit,
     Pod,
@@ -456,9 +489,7 @@ pub enum ResultMessage {
 }
 
 pub fn load_from_json() -> SearchIndex {
-    //  let buf = dirs::home_dir().unwrap().into_os_string().into_string().unwrap();
-    let path = ".melt_index.dat";
-    let file = get_file_as_byte_vec(&path);
+    let file = get_file_as_byte_vec(&".melt_index.dat");
     match file {
         Ok(file) => deserialize(&file).unwrap_or(get_search_index()),
         Err(_) => get_search_index(),
