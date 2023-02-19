@@ -18,6 +18,7 @@ use kube::api::{ListParams, LogParams};
 use kube::{Api, Client};
 use melt_rs::get_search_index;
 use melt_rs::index::SearchIndex;
+use memchr::memmem::Finder;
 use num_format::{Locale, ToFormattedString};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -170,21 +171,24 @@ impl MemStore {
         time: u128,
     ) -> Vec<String> {
         let query = query.to_lowercase();
+        let finder_query = Self::get_finder(exact, &query);
+        let query_neq = query_neq.to_lowercase();
+        let finder_query_neq = Self::get_finder(exact, &query_neq);
         let mut result = self
             .ser
             .lines
             .values()
             .into_iter()
             .filter(|s| {
-                (query_neq.is_empty() || !self.is_match(false, &query_neq.to_lowercase(), s))
-                    && self.is_match(exact, &query, s)
+                (query_neq.is_empty() || !self.is_match(&finder_query_neq, s))
+                    && self.is_match(&finder_query, s)
             })
             .take(limit)
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
         if result.len() < limit {
             let mut positive_keys = self.ser.index.search(&query, exact);
-            let mut negative_keys = self.ser.index.search_or(query_neq);
+            let mut negative_keys = self.ser.index.search_or(&query_neq);
             if !query_neq.is_empty() {
                 let set: FnvHashSet<usize> = positive_keys.iter().cloned().collect();
                 let set_neg: FnvHashSet<usize> = negative_keys.iter().cloned().collect();
@@ -196,7 +200,7 @@ impl MemStore {
                 result.extend(self.internal_find(
                     positive_keys,
                     limit - result.len(),
-                    |s: &String| self.is_match(exact, &query, s),
+                    |s: &String| self.is_match(&finder_query, s),
                     start,
                     time,
                 ));
@@ -206,8 +210,7 @@ impl MemStore {
                     negative_keys,
                     limit - result.len(),
                     |s: &String| {
-                        !self.is_match(false, &query_neq.to_lowercase(), s)
-                            && self.is_match(exact, &query, s)
+                        !self.is_match(&finder_query_neq, s) && self.is_match(&finder_query, s)
                     },
                     start,
                     time,
@@ -215,6 +218,14 @@ impl MemStore {
             }
         }
         result
+    }
+
+    fn get_finder(exact: bool, query: &str) -> Vec<Finder> {
+        if exact {
+            vec![Finder::new(query)]
+        } else {
+            query.split(" ").map(|p| Finder::new(p)).collect::<Vec<_>>()
+        }
     }
 
     fn size(&self) -> usize {
@@ -237,16 +248,15 @@ impl MemStore {
             .collect::<Vec<String>>()
     }
 
-    fn is_match(&self, exact: bool, needle: &str, s: &str) -> bool {
+    fn is_match(&self, needle: &[Finder], s: &str) -> bool {
         let haystack = s.to_lowercase();
         if needle.is_empty() {
             return true;
         }
-        if exact {
-            haystack.contains(needle)
-        } else {
-            needle.split(" ").all(|part| haystack.contains(part))
-        }
+        needle.iter().all(|n| match n.find(haystack.as_bytes()) {
+            None => false,
+            Some(_) => true,
+        })
     }
 
     fn write(&mut self) {
