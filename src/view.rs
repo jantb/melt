@@ -186,7 +186,7 @@ pub fn build_ui() -> impl Widget<AppState> {
         )
         .with_child(
             Slider::new()
-                .with_range(10.0, 50000.0)
+                .with_range(10.0, 2000.0)
                 .with_step(1.0)
                 .lens(AppState::viewlimit)
                 .align_left(),
