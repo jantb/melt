@@ -179,6 +179,7 @@ impl MemStore {
             .lines
             .values()
             .into_iter()
+            .rev()
             .filter(|s| {
                 (query_neq.is_empty() || !self.is_match(&finder_query_neq, s))
                     && self.is_match(&finder_query, s)
