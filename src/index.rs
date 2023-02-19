@@ -504,7 +504,6 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
                         .to_string()
                 );
             }
-            data.indexed_data_in_bytes = GLOBAL_DATA_SIZE.load(Ordering::SeqCst);
             data.indexed_data_in_bytes_string = format!(
                 "Data size    {}",
                 human_bytes(GLOBAL_DATA_SIZE.load(Ordering::SeqCst) as f64)

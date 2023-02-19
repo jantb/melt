@@ -8,7 +8,6 @@
 #![allow(dead_code, non_upper_case_globals)]
 #![windows_subsystem = "windows"]
 
-use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Mutex;
 
 use bincode::deserialize;
@@ -23,7 +22,7 @@ use view::build_ui;
 
 use crate::data::SerializableParameters;
 use crate::delegate::Delegate;
-use crate::index::{get_file_as_byte_vec, search_thread, CommandMessage, GLOBAL_DATA_SIZE};
+use crate::index::{get_file_as_byte_vec, search_thread, CommandMessage};
 
 mod data;
 
@@ -84,7 +83,6 @@ async fn main() -> () {
             pointers_view: Vector::from(parameters.pointer_state_view),
             query_time: "".to_string(),
             count: "0".to_string(),
-            indexed_data_in_bytes: parameters.indexed_data_in_bytes,
             indexed_data_in_bytes_string: "".to_string(),
             settings: false,
             ongoing_search: false,
@@ -107,7 +105,6 @@ pub fn load_from_json() -> SerializableParameters {
         Ok(file) => {
             let parameters: SerializableParameters =
                 deserialize(&file).unwrap_or(SerializableParameters::default());
-            GLOBAL_DATA_SIZE.store(parameters.indexed_data_in_bytes, SeqCst);
             GLOBAL_STATE.lock().unwrap().sort = parameters.sort.to_string();
             parameters
         }

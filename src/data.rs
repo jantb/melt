@@ -29,7 +29,6 @@ pub struct AppState {
     pub query_time: String,
     pub count: String,
     #[data(ignore)]
-    pub indexed_data_in_bytes: u64,
     pub indexed_data_in_bytes_string: String,
     #[data(ignore)]
     pub settings: bool,
@@ -49,7 +48,6 @@ impl AppState {
     }
     fn get_serializable_parameters(&self) -> SerializableParameters {
         SerializableParameters {
-            indexed_data_in_bytes: self.indexed_data_in_bytes,
             pointer_state: self
                 .pointers
                 .iter()
@@ -69,14 +67,12 @@ impl AppState {
 pub struct SerializableParameters {
     pub pointer_state: Vec<PointerState>,
     pub pointer_state_view: Vec<PointerState>,
-    pub indexed_data_in_bytes: u64,
     pub sort: String,
 }
 
 impl Default for SerializableParameters {
     fn default() -> Self {
         SerializableParameters {
-            indexed_data_in_bytes: 0,
             pointer_state: vec![],
             pointer_state_view: vec![],
             sort: "".to_string(),
