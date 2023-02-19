@@ -33,11 +33,11 @@ fn new_search_textbox() -> impl Widget<AppState> {
         .with_flex_child(new_search_textbox_neq.padding(5.), 1.)
         .with_child(Checkbox::new("Exact").lens(AppState::exact))
         .on_click(|ctx, data: &mut AppState, _env| {
+            GLOBAL_STATE.lock().unwrap().exact = data.exact;
             ctx.submit_command(SEARCH.with((
                 (data.query.to_string(), data.not_query.to_string()),
-                data.exact,
+                GLOBAL_STATE.lock().unwrap().exact,
             )));
-            ctx.request_update()
         })
 }
 
@@ -60,8 +60,6 @@ impl<W: Widget<AppState>> Controller<AppState, W> for SearchController {
 
         if let Event::KeyUp(_) = event {
             GLOBAL_STATE.lock().unwrap().query = data.query.to_string();
-            GLOBAL_STATE.lock().unwrap().query_neg = data.not_query.to_string();
-            GLOBAL_STATE.lock().unwrap().exact = data.exact;
             ctx.submit_command(SEARCH.with((
                 (data.query.to_string(), data.not_query.to_string()),
                 data.exact,
@@ -82,6 +80,7 @@ impl<W: Widget<AppState>> Controller<AppState, W> for ControllerForNegSearch {
         env: &Env,
     ) {
         if let Event::KeyUp(_) = event {
+            GLOBAL_STATE.lock().unwrap().query_neg = data.not_query.to_string();
             ctx.submit_command(SEARCH.with((
                 (data.query.to_string(), data.not_query.to_string()),
                 data.exact,
@@ -197,6 +196,9 @@ pub fn build_ui() -> impl Widget<AppState> {
                 .lens(AppState::tail)
                 .on_click(|ctx, app_state: &mut AppState, _env| {
                     app_state.tail = !app_state.tail;
+                    GLOBAL_STATE.lock().unwrap().query = app_state.query.to_string();
+                    GLOBAL_STATE.lock().unwrap().query_neg = app_state.not_query.to_string();
+                    GLOBAL_STATE.lock().unwrap().exact = app_state.exact;
                     ctx.submit_command(TAIL.with(app_state.tail));
                 })
                 .align_left(),
@@ -216,7 +218,7 @@ pub fn build_ui() -> impl Widget<AppState> {
             )
             .vertical(),
         )
-        .split_point(0.2)
+        .split_point(1.)
         .draggable(true)
         .solid_bar(true),
     );
@@ -240,7 +242,7 @@ pub fn build_ui() -> impl Widget<AppState> {
                 })
                 .align_left(),
         )
-        .with_child(
+        .with_flex_child(
             Scroll::new(List::new(|| {
                 Flex::row()
                     .with_child(Checkbox::new("").lens(PointerState::checked).on_click(
@@ -274,9 +276,10 @@ pub fn build_ui() -> impl Widget<AppState> {
             .vertical()
             .lens(AppState::pointers)
             .align_left(),
+            0.5,
         )
         .with_child(Label::new("Select view tag:").padding(8.0).align_left())
-        .with_child(
+        .with_flex_child(
             Scroll::new(List::new(|| {
                 Flex::row()
                     .with_child(Checkbox::new("").lens(PointerState::checked).on_click(
@@ -300,6 +303,7 @@ pub fn build_ui() -> impl Widget<AppState> {
             .vertical()
             .lens(AppState::pointers_view)
             .align_left(),
+            0.5,
         );
 
     let either = Either::new(
@@ -308,26 +312,4 @@ pub fn build_ui() -> impl Widget<AppState> {
         container,
     );
     either
-}
-
-pub fn trigram(word: &str) -> Vec<String> {
-    let mut word = word.to_string();
-    word.make_ascii_lowercase();
-    let chars: Vec<char> = word.chars().collect();
-    if chars.len() < 3 {
-        return vec![];
-    }
-
-    let mut trigrams = Vec::with_capacity(chars.len() - 2);
-    let mut seen = std::collections::HashSet::new();
-
-    for i in 1..chars.len() - 1 {
-        let trigram = &chars[i - 1..i + 2];
-        if !seen.contains(trigram) {
-            seen.insert(trigram);
-            trigrams.push(trigram.into_iter().collect());
-        }
-    }
-
-    trigrams
 }
