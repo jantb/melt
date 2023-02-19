@@ -250,7 +250,7 @@ impl MemStore {
 
     fn is_match(&self, needle: &[Finder], s: &str) -> bool {
         let haystack = s.to_lowercase();
-        if needle.is_empty() {
+        if needle.is_empty() || (needle.len() == 1 && needle.first().unwrap().needle().is_empty()) {
             return true;
         }
         needle.iter().all(|n| match n.find(haystack.as_bytes()) {
