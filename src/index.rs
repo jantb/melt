@@ -78,7 +78,23 @@ impl MemStore {
 
         Ok(store)
     }
+    pub fn resort(&mut self) {
+        let map = self.ser.lines.clone();
+        let vec = map
+            .iter()
+            .map(
+                |m| match resolve_pointer_some(&m.1, &GLOBAL_STATE.lock().unwrap().sort) {
+                    None => (Uuid::new_v4().to_string(), m.1.to_string()),
+                    Some(p) => (p, m.1.to_string()),
+                },
+            )
+            .collect::<Vec<(String, String)>>();
 
+        self.ser.lines.clear();
+        vec.iter().for_each(|m| {
+            self.ser.lines.insert(m.0.clone(), m.1.clone());
+        });
+    }
     pub fn put(&mut self, key: usize, value: &[u8]) -> io::Result<()> {
         let offset = self.data_fd.seek(SeekFrom::End(0))?;
         self.data_fd.write_all(value)?;
@@ -177,8 +193,8 @@ impl MemStore {
             .ser
             .lines
             .values()
-            .into_iter()
             .rev()
+            .into_iter()
             .filter(|s| {
                 (query_neq.is_empty() || !self.is_match(&finder_query_neq, s))
                     && self.is_match(&finder_query, s)
@@ -471,6 +487,9 @@ fn index_tread(
                         GLOBAL_COUNT.store(0, Ordering::SeqCst);
                         GLOBAL_DATA_SIZE.store(0, Ordering::SeqCst);
                     }
+                    CommandMessage::RESORT => {
+                        mem_store.resort();
+                    }
                 },
                 Err(_) => {}
             };
@@ -543,6 +562,7 @@ fn socket_listener(tx_send: Sender<CommandMessage>, sink: ExtEventSink) {
 #[derive(Clone)]
 pub enum CommandMessage {
     Filter(String, String, bool, u64, usize, Vector<PointerState>),
+    RESORT,
     Clear,
     Quit,
     Pod,

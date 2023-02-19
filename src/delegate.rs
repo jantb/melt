@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::data::{AppState, ItemRich, PointerState};
 use crate::index::CommandMessage;
+use crate::index::CommandMessage::RESORT;
 use crate::GLOBAL_STATE;
 
 pub const SET_VIEW: Selector<String> = Selector::new("set_view");
@@ -123,6 +124,7 @@ impl AppDelegate<AppState> for Delegate {
                 .map(|p| p.text.to_string())
                 .last()
                 .unwrap_or("".to_string());
+            data.tx.send(RESORT).unwrap();
             Handled::Yes
         } else if let Some(pointer_state) = cmd.get(CHECK_CLICKED_FOR_POINTER_VIEW) {
             data.pointers_view.iter_mut().for_each(|p| {
