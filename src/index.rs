@@ -114,8 +114,12 @@ impl MemStore {
         file.seek(SeekFrom::Start(entry.offset))?;
         let mut value = vec![0; entry.len];
         file.read_exact(&mut value)?;
-        let string = String::from_utf8_lossy(self.decompress_with_dict(&value).unwrap().as_bytes())
-            .to_string();
+        let string = String::from_utf8_lossy(
+            self.decompress_with_dict(&value)
+                .unwrap_or("".to_string())
+                .as_bytes(),
+        )
+        .to_string();
         return Ok(string);
     }
 
