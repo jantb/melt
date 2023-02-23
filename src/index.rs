@@ -155,7 +155,7 @@ impl MemStore {
 
     fn add(&mut self, sort_column: &str, value: &str) {
         self.ser.bytes += value.len();
-        if self.ser.bytes_internal > 1024 * 1024 * 32 {
+        if self.ser.bytes_internal > 1024 * 1024 * 32 && self.ser.lines.len() > 0 {
             if self.ser.dict.is_empty() {
                 let vec = self
                     .ser
