@@ -28,6 +28,3 @@ tokio-stream = "0.1.11"
 rayon = "1.6.1"
 zstd = {version = "0.12.3",features = ["zdict_builder"]}
 memchr = "2.5.0"
-
-[profile.release]
-debug = true
