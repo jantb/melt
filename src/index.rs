@@ -128,6 +128,8 @@ impl MemStore {
         self.ser.index.clear();
         self.data_fd.set_len(0).unwrap();
         self.ser.index_fd.clear();
+        self.ser.bytes = 0;
+        self.ser.bytes_internal = 0;
     }
 
     fn compress_with_dict(&self, input: &str) -> io::Result<Vec<u8>> {
